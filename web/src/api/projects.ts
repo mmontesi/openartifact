@@ -7,6 +7,8 @@ import type { Repository } from './repositories'
 import type { ApiCleanupPolicy } from '../lib/cleanupPolicy'
 import type {
   Project as GeneratedProject,
+  ProjectActivityEntry,
+  ProjectActivityPage,
   ProjectQuota as GeneratedProjectQuota,
   ProjectUsage as GeneratedProjectUsage,
   Quota as QuotaLimits,
@@ -20,7 +22,7 @@ import type {
   ProjectUpdateRequest,
 } from './generated/types.gen'
 
-export type { ProjectCreateRequest, ProjectGroup, ProjectGroupUpdateRequest, ProjectUpdateRequest }
+export type { ProjectActivityEntry, ProjectCreateRequest, ProjectGroup, ProjectGroupUpdateRequest, ProjectUpdateRequest }
 
 /** Name of the built-in system project: the default, whose membership grants nothing. */
 export const SYSTEM_PROJECT_NAME = 'system'
@@ -241,3 +243,28 @@ export const updateProjectCleanupPolicy = (project: string, id: string, body: Pr
 /** Owners and global admins. */
 export const deleteProjectCleanupPolicy = (project: string, id: string) =>
   request<void>(`${base(project)}/cleanup-policies/${enc(id)}`, { method: 'DELETE' })
+
+/** One page of project activity, newest first. */
+export interface ProjectActivity {
+  items: ProjectActivityEntry[]
+  hasMore: boolean
+  /** Pass as `cursor` to load the following page; null on the last page. */
+  nextCursor: string | null
+}
+
+/**
+ * Audit events of the project and of its repositories, newest first, for any
+ * member. Keyset paging: pass the previous `nextCursor` as `cursor`, leave it
+ * out for the newest entries. There is deliberately no total.
+ */
+export async function listProjectActivity(
+  project: string,
+  params: { cursor?: string; limit?: number } = {},
+): Promise<ProjectActivity> {
+  const qs = new URLSearchParams()
+  if (params.cursor) qs.set('cursor', params.cursor)
+  if (params.limit != null) qs.set('per_page', String(params.limit))
+  const query = qs.toString() ? `?${qs}` : ''
+  const res = await request<Partial<ProjectActivityPage>>(`${base(project)}/activity${query}`)
+  return { items: res?.data ?? [], hasMore: res?.has_more ?? false, nextCursor: res?.next_cursor ?? null }
+}

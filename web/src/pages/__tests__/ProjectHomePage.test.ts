@@ -29,6 +29,14 @@ const MEMBERS = {
 }
 const GROUPS = { groups: [{ group_id: 'g1', group_name: 'devs', role: 'developer', created_at: '2026-01-01T00:00:00Z' }] }
 
+const ACTIVITY = {
+  data: [
+    { id: 'e1', timestamp: '2026-01-02T03:04:05Z', action: 'project.member_added', actor: 'ann', message: 'added bob to alpha' },
+  ],
+  per_page: 25,
+  has_more: false,
+}
+
 function project(my_role: string, extra: Record<string, unknown> = {}) {
   return {
     id: 'p1',
@@ -56,6 +64,7 @@ async function mountPage(opts: { role?: string; status?: number; query?: string;
     if (path.endsWith('/repositories')) return json(REPOS)
     if (path.endsWith('/members')) return json(MEMBERS)
     if (path.endsWith('/groups')) return json(GROUPS)
+    if (path.endsWith('/activity')) return json(ACTIVITY)
     return json({}, 404)
   })
   const router = createRouter({
@@ -91,7 +100,16 @@ describe('ProjectHomePage', () => {
 
   it('lists every section for a viewer, with the tab kept in ?tab=', async () => {
     const { wrapper } = await mountPage({ role: 'viewer' })
-    expect(tabLabels(wrapper)).toEqual(['Overview', 'Repositories', 'Usage', 'Members', 'Tokens', 'Settings'])
+    expect(tabLabels(wrapper)).toEqual(['Overview', 'Repositories', 'Usage', 'Members', 'Tokens', 'Activity', 'Settings'])
+  })
+
+  it('shows the activity tab for a viewer, newest first', async () => {
+    const { wrapper } = await mountPage({ role: 'viewer', query: '?tab=activity' })
+    const rows = wrapper.findAll('[data-testid="activity-row"]')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('project.member_added')
+    expect(rows[0]!.text()).toContain('added bob to alpha')
+    expect(fetchSpy.mock.calls.map((c) => String(c[0]))).toContain('/api/v1/projects/alpha/activity?per_page=25')
   })
 
   it('shows the repositories tab as a paginated table linking to /repos/:name', async () => {

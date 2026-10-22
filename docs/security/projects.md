@@ -23,6 +23,7 @@ Roles rank `viewer` < `developer` < `maintainer` < `owner`. A user's effective r
 | Create repositories in the project (policy applies) | | | x | x | |
 | Update, delete and configure the project's repositories (cleanup policies, quota, trash emptying) | | | x | x | |
 | See the project's storage usage, quota and default cleanup policies | x | x | x | x | |
+| See the project's activity (audit events of the project and its repositories) | x | x | x | x | |
 | Move a repository to another project (owner of both) | | | | x | |
 | Create, change and delete the project's default cleanup policies | | | | x | |
 | Add, change and remove members and groups below `maintainer` | | | x | x | |
@@ -137,7 +138,15 @@ Every project mutation writes an audit entry with the project in `project_id`:
 | `project.group_added`, `project.group_removed`, `project.group_role_changed` | group grants |
 | `project.token_created`, `project.token_revoked` | project tokens |
 
-`project.deleted` carries the project ID as the resource ID instead of `project_id`: the audit row's project reference is cleared when the project goes away. Changing the self-creation setting is recorded as `system.setting_changed`. Read the log with [`GET /api/v1/admin/audit`](../integrations/api.md) or `oa audit list`.
+`project.deleted` carries the project ID as the resource ID instead of `project_id`: the audit row's project reference is cleared when the project goes away. Changing the self-creation setting is recorded as `system.setting_changed`. Read the whole log with [`GET /api/v1/admin/audit`](../integrations/api.md) or `oa audit list` (global admins).
+
+### Project activity
+
+Every member reads the events of their own project, without being a global admin, with `GET /projects/{project}/activity` or in the **Activity** section of the project page. The feed holds the entries whose `project_id` is the project (the table above) plus the entries recorded against a repository the project owns today (`repository_id`): `project.repository_created`, `project.repository_deleted`, `project.repository_transferred`, and the repository events of the trash (`artifact.restored`, `artifact.purged`, `repository.restored`, `repository.purged`). A repository moved to another project takes its entries with it. Uploads and downloads are not audit events (see [monitoring](../operations/monitoring.md#audit-log)), so the feed shows administrative changes, not package traffic.
+
+- Newest first, keyset paging like the admin log: `per_page` (default 25, at most 100), `cursor` (the previous `next_cursor`), `has_more`. There is no total and no row is ever counted. `actor` and `action` are case-insensitive substring filters.
+- Entries carry `id`, `timestamp`, `action`, `actor` (user or token name), `actor_type`, `message`, `resource_type`, `resource_id` and `repository_id`. They never carry the client IP address: that stays in the admin log.
+- Access is the viewer role: a non-member gets `404`, the same as for an unknown project, so one project's activity never leaks into another's. Anonymous, deploy and scoped credentials get no project role, as for every other project route.
 
 ## API
 
@@ -164,6 +173,7 @@ All paths are under `/api/v1`, JSON is snake_case, errors are `{"error": message
 | `POST /projects/{project}/tokens` | viewer | session only; body `name`, `role` (`viewer`, `developer`, at most your own), `expires_at`; 201 with the secret in `token`, shown once; 409 on duplicate name or 100 active tokens |
 | `DELETE /projects/{project}/tokens/{token_id}` | viewer | maintainer for tokens of others; 204 |
 | `GET /projects/{project}/usage` | viewer | `{project, size_bytes, artifact_count, quota, repositories}`: totals, the project quota and one line per live repository (`name`, `format`, `repo_type`, `size_bytes`, `artifact_count`, repository limits, `quota_enforced`) |
+| `GET /projects/{project}/activity?per_page=&cursor=&actor=&action=` | viewer | `{data, per_page, has_more, next_cursor}`: audit events of the project and its repositories, newest first, keyset paging only (see [Project activity](#project-activity)) |
 | `GET /projects/{project}/quota` | viewer | the project quota: `max_size_bytes`, `max_artifact_count`, `warn_threshold_percent`, `current_size_bytes`, `current_artifact_count`, `usage_percent`, `enforced`, `updated_at` |
 | `PUT /projects/{project}/quota` | admin | body `max_size_bytes`, `max_artifact_count`, `warn_threshold_percent` (omitted fields keep their value, `0` = unlimited); owners get 403, a negative limit or a threshold outside 0-100 is 400 `validation_failed` |
 | `GET /projects/{project}/cleanup-policies` | viewer | `{policies}`, the project default policies |

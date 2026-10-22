@@ -31,6 +31,7 @@ func TestProjectsRouteMatrix(t *testing.T) {
 		{"list repositories", http.MethodGet, "/api/v1/projects/acme/repositories", "", models.ProjectRoleViewer},
 		{"list members", http.MethodGet, "/api/v1/projects/acme/members", "", models.ProjectRoleViewer},
 		{"list groups", http.MethodGet, "/api/v1/projects/acme/groups", "", models.ProjectRoleViewer},
+		{"project activity", http.MethodGet, "/api/v1/projects/acme/activity", "", models.ProjectRoleViewer},
 		{"update project", http.MethodPatch, "/api/v1/projects/acme", `{"display_name":"x"}`, models.ProjectRoleOwner},
 		{"delete project", http.MethodDelete, "/api/v1/projects/acme", "", models.ProjectRoleOwner},
 		{"add member", http.MethodPost, "/api/v1/projects/acme/members", `{"username":"newbie","role":"viewer"}`, models.ProjectRoleMaintainer},

@@ -97,6 +97,8 @@ For allocation and CPU profiling see [performance](performance.md).
 
 The server records who changed what. Events are stored in the `audit_logs` table and shown under Admin, Audit in the UI.
 
+Members of a project read the slice that concerns them (the project's own events and those of its repositories) without admin rights: see [project activity](../security/projects.md#project-activity).
+
 Recorded:
 
 - Every authenticated `POST`, `PUT` and `DELETE` request (reads are not recorded), with actor (username, or `anonymous`), client IP and a `details` object with `method`, `path` (the route pattern such as `/api/v1/repositories/{name}`, not the concrete URL), `status`, and `error: true` for status 400 and above.

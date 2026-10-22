@@ -498,3 +498,26 @@ type ProjectTokenCreateResponse struct {
 
 	Token string `json:"token"`
 }
+
+// ProjectActivityEntry is one audit event of a project or of a repository it
+// owns. It carries no client address: members see what happened, not from where.
+type ProjectActivityEntry struct {
+	ID           string  `json:"id"`
+	Timestamp    string  `json:"timestamp"`
+	Action       string  `json:"action"`
+	Actor        string  `json:"actor"`
+	ActorType    *string `json:"actor_type"`
+	Message      string  `json:"message"`
+	ResourceType *string `json:"resource_type"`
+	ResourceID   *string `json:"resource_id"`
+	RepositoryID *string `json:"repository_id"`
+}
+
+// ProjectActivityPage is GET /api/v1/projects/{project}/activity: keyset paging
+// only, no total. NextCursor is empty when HasMore is false.
+type ProjectActivityPage struct {
+	Data       []ProjectActivityEntry `json:"data"`
+	PerPage    int                    `json:"per_page"`
+	HasMore    bool                   `json:"has_more"`
+	NextCursor string                 `json:"next_cursor,omitempty"`
+}

@@ -78,6 +78,10 @@ type projectsMockDB struct {
 	mu     sync.Mutex // guards audits (written by the audit worker goroutine)
 	audits []*models.AuditLog
 
+	// listAudit is what ListAuditLogs returns; listParams the last query.
+	listAudit  *models.AuditPage
+	listParams models.AuditListParams
+
 	createdProject *models.Project
 	updated        *models.Project
 	deleted        []string
@@ -380,6 +384,16 @@ func (db *projectsMockDB) InsertAuditLog(_ context.Context, event *models.AuditL
 	db.audits = append(db.audits, event)
 
 	return nil
+}
+
+func (db *projectsMockDB) ListAuditLogs(_ context.Context, params models.AuditListParams) (*models.AuditPage, error) {
+	db.listParams = params
+
+	if db.listAudit == nil {
+		return &models.AuditPage{}, nil
+	}
+
+	return db.listAudit, nil
 }
 
 func (db *projectsMockDB) ListProjectGroups(_ context.Context, _ string) ([]*models.ProjectGroup, error) {

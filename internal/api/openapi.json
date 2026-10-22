@@ -1502,6 +1502,88 @@
           }
         }
       },
+      "ProjectActivityEntry": {
+        "type": "object",
+        "description": "One audit event of a project or of a repository it owns. Carries no client address.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "action": {
+            "type": "string",
+            "description": "Audit action, e.g. `project.member_added`, `project.repository_created`."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Username or token name of the actor; empty when unknown."
+          },
+          "actor_type": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "user",
+              "system",
+              "token",
+              "sso"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "resource_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "resource_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "repository_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "timestamp",
+          "action",
+          "actor",
+          "message"
+        ]
+      },
+      "ProjectActivityPage": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectActivityEntry"
+            }
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "True when entries follow this page."
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Pass as `cursor` to fetch the next page. Absent when `has_more` is false."
+          }
+        },
+        "required": [
+          "data",
+          "per_page",
+          "has_more"
+        ]
+      },
       "ProjectUsage": {
         "type": "object",
         "properties": {
@@ -8412,6 +8494,77 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Project not found or the caller is not a member"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/activity": {
+      "get": {
+        "summary": "Project activity",
+        "description": "Audit events of the project and of the repositories it owns (member, group, token, quota, policy and repository changes, plus events recorded against its repositories), newest first. Keyset paging only: follow `next_cursor` while `has_more` is true; no row is counted. Client addresses are not returned. Any member; a non-member gets 404.",
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque `next_cursor` of the previous page; omit for the newest entries.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "description": "Case-insensitive substring of the actor name or actor id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Case-insensitive substring of the action name.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of activity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectActivityPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed cursor"
           },
           "404": {
             "description": "Project not found or the caller is not a member"

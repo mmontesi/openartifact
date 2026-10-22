@@ -37,12 +37,17 @@ type AuditCursor struct {
 type AuditListParams struct {
 	Actor  string
 	Action string
-	Limit  int
+	// ProjectID, when set, restricts the listing to entries of that project:
+	// those carrying its project_id plus those of any repository it owns now.
+	ProjectID string
+	Limit     int
 	// Offset skips that many entries. Ignored when After is set.
 	Offset int
 	// After, when set, returns only entries strictly after this position
 	// (keyset paging: no offset scan, no total).
 	After *AuditCursor
+	// NoTotal skips the offset-paging total (keyset callers never read it).
+	NoTotal bool
 }
 
 // AuditPage is one page of audit entries.

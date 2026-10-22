@@ -133,6 +133,9 @@ SPDX-License-Identifier: AGPL-3.0-or-later
       <!-- Tokens -->
       <ProjectTokensTab v-else-if="activeTab === 'tokens'" :project="project" />
 
+      <!-- Activity -->
+      <ProjectActivityTab v-else-if="activeTab === 'activity'" :project="projectName" />
+
       <!-- Settings -->
       <ProjectSettingsTab
         v-else-if="activeTab === 'settings'"
@@ -152,6 +155,7 @@ import EmptyState from '../components/EmptyState.vue'
 import FormatBadge from '../components/FormatBadge.vue'
 import MemberTable from '../components/MemberTable.vue'
 import Pagination from '../components/Pagination.vue'
+import ProjectActivityTab from '../components/ProjectActivityTab.vue'
 import ProjectHeader from '../components/ProjectHeader.vue'
 import ProjectRoleBadge from '../components/ProjectRoleBadge.vue'
 import ProjectSettingsTab from '../components/ProjectSettingsTab.vue'

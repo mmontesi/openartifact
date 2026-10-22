@@ -142,6 +142,7 @@ Roles, creation rules, audit events and the full route list: [Projects](projects
 | `GET /api/v1/projects/{project}/repositories` | viewer+; paginated (`page`, `limit`) |
 | `GET/POST /api/v1/projects/{project}/members`, `PATCH/DELETE /api/v1/projects/{project}/members/{user_id}` | list viewer+, changes maintainer+ (see escalation rules); `POST` takes `user_id` or an exact `username`; `PATCH` (was `PUT`) body `{"role"}`; roles `viewer` (default), `developer`, `maintainer`, `owner` |
 | `GET /api/v1/projects/{project}/groups`, `PUT/DELETE /api/v1/projects/{project}/groups/{group}` | group grants; `{group}` is a group id or its exact name; `PUT` body `{"role":"viewer\|developer\|maintainer"}`; changes maintainer+ |
+| `GET /api/v1/projects/{project}/activity` | viewer+; audit events of the project and its repositories, keyset paging, no client addresses ([Projects](projects.md#project-activity)) |
 | `GET/PUT /api/v1/admin/projects/settings` | admin; `{"self_create": bool}` |
 
 ### Caching

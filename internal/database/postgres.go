@@ -2785,11 +2785,19 @@ const auditExactCountMax = 10_000
 // ErrInvalidAuditLimit is returned by ListAuditLogs for a page size below 1.
 var ErrInvalidAuditLimit = errors.New("audit page limit must be positive")
 
-// auditFilterWhere builds the actor/action predicate shared by the page and
-// count queries. Placeholders start at $1.
-func auditFilterWhere(actor, action string) (string, []any) {
+// auditFilterWhere builds the project/actor/action predicate shared by the page
+// and count queries. Placeholders start at $1.
+func auditFilterWhere(projectID, actor, action string) (string, []any) {
 	where := "WHERE 1=1"
 	args := []any{}
+
+	// A project's activity is every entry naming the project plus every entry
+	// of a repository it owns now (repository events carry no project_id).
+	// Both branches are served by partial indexes.
+	if projectID != "" {
+		args = append(args, projectID)
+		where += fmt.Sprintf(" AND (project_id = $%[1]d::uuid OR repository_id IN (SELECT id FROM repositories WHERE project_id = $%[1]d::uuid))", len(args))
+	}
 
 	if action != "" {
 		args = append(args, "%"+escapeLike(action)+"%")
@@ -2815,7 +2823,7 @@ func (p *PostgresDB) ListAuditLogs(ctx context.Context, params models.AuditListP
 		return nil, fmt.Errorf("list audit logs: %w, got %d", ErrInvalidAuditLimit, params.Limit)
 	}
 
-	where, args := auditFilterWhere(params.Actor, params.Action)
+	where, args := auditFilterWhere(params.ProjectID, params.Actor, params.Action)
 	filtered := len(args) > 0
 	offset := params.Offset
 
@@ -2871,7 +2879,7 @@ func (p *PostgresDB) ListAuditLogs(ctx context.Context, params models.AuditListP
 		page.Next = &models.AuditCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 
-	if params.After != nil {
+	if params.After != nil || params.NoTotal {
 		return page, nil
 	}
 

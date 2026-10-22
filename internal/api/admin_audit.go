@@ -60,6 +60,7 @@ func (h *AdminAuditHandler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	if keyset {
 		params.Offset = 0
+		params.NoTotal = true
 	}
 
 	result, err := h.db.ListAuditLogs(r.Context(), params)

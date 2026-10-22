@@ -644,6 +644,40 @@ export type ProjectQuota = {
     updated_at?: string;
 };
 
+/**
+ * One audit event of a project or of a repository it owns. Carries no client address.
+ */
+export type ProjectActivityEntry = {
+    id: string;
+    timestamp: string;
+    /**
+     * Audit action, e.g. `project.member_added`, `project.repository_created`.
+     */
+    action: string;
+    /**
+     * Username or token name of the actor; empty when unknown.
+     */
+    actor: string;
+    actor_type?: 'user' | 'system' | 'token' | 'sso';
+    message: string;
+    resource_type?: string | null;
+    resource_id?: string | null;
+    repository_id?: string | null;
+};
+
+export type ProjectActivityPage = {
+    data: Array<ProjectActivityEntry>;
+    per_page: number;
+    /**
+     * True when entries follow this page.
+     */
+    has_more: boolean;
+    /**
+     * Pass as `cursor` to fetch the next page. Absent when `has_more` is false.
+     */
+    next_cursor?: string;
+};
+
 export type ProjectUsage = {
     project?: string;
     size_bytes?: number;
@@ -4597,6 +4631,49 @@ export type GetApiV1ProjectsByProjectUsageResponses = {
 };
 
 export type GetApiV1ProjectsByProjectUsageResponse = GetApiV1ProjectsByProjectUsageResponses[keyof GetApiV1ProjectsByProjectUsageResponses];
+
+export type GetApiV1ProjectsByProjectActivityData = {
+    body?: never;
+    path: {
+        project: string;
+    };
+    query?: {
+        per_page?: number;
+        /**
+         * Opaque `next_cursor` of the previous page; omit for the newest entries.
+         */
+        cursor?: string;
+        /**
+         * Case-insensitive substring of the actor name or actor id.
+         */
+        actor?: string;
+        /**
+         * Case-insensitive substring of the action name.
+         */
+        action?: string;
+    };
+    url: '/api/v1/projects/{project}/activity';
+};
+
+export type GetApiV1ProjectsByProjectActivityErrors = {
+    /**
+     * Malformed cursor
+     */
+    400: unknown;
+    /**
+     * Project not found or the caller is not a member
+     */
+    404: unknown;
+};
+
+export type GetApiV1ProjectsByProjectActivityResponses = {
+    /**
+     * One page of activity
+     */
+    200: ProjectActivityPage;
+};
+
+export type GetApiV1ProjectsByProjectActivityResponse = GetApiV1ProjectsByProjectActivityResponses[keyof GetApiV1ProjectsByProjectActivityResponses];
 
 export type GetApiV1ProjectsByProjectQuotaData = {
     body?: never;

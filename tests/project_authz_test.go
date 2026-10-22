@@ -7,8 +7,10 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +48,36 @@ type pzDB struct {
 	sessions map[string]*models.Session
 	tokens   map[string]*models.Token
 	settings map[string]string
+	audits   []*models.AuditLog // newest first
+}
+
+// ListAuditLogs mimics the project filter of the Postgres query: only rows of
+// params.ProjectID, newest first, keyset after params.After.
+func (d *pzDB) ListAuditLogs(_ context.Context, params models.AuditListParams) (*models.AuditPage, error) {
+	var rows []*models.AuditLog
+
+	skipping := params.After != nil
+
+	for _, l := range d.audits {
+		if skipping {
+			skipping = l.ID != params.After.ID
+
+			continue
+		}
+
+		if params.ProjectID == "" || (l.ProjectID != nil && *l.ProjectID == params.ProjectID) {
+			rows = append(rows, l)
+		}
+	}
+
+	page := &models.AuditPage{Logs: rows}
+	if len(rows) > params.Limit {
+		page.Logs = rows[:params.Limit]
+		last := page.Logs[params.Limit-1]
+		page.Next = &models.AuditCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+
+	return page, nil
 }
 
 func (d *pzDB) GetPermissionTargetsForPrincipal(_ context.Context, userID string, _ []string) ([]*models.PermissionTarget, error) {
@@ -671,4 +703,100 @@ func TestProjectAuthzE2E_UnknownRoutesStayAdminOnly(t *testing.T) {
 
 	// Nobody but admins may touch the global admin API.
 	f.expect("00000000-0000-4000-8000-0000000000a2", http.MethodGet, "/api/v1/admin/projects/settings", "", http.StatusForbidden)
+}
+
+// Activity never crosses projects: a member reads only the feed of a project
+// they belong to, and that feed holds only that project's events.
+func TestProjectAuthzE2E_ActivityIsProjectScoped(t *testing.T) {
+	const (
+		olivia = "00000000-0000-4000-8000-0000000000a2" // owner of acme
+		dana   = "00000000-0000-4000-8000-0000000000a4" // developer in acme
+		vic    = "00000000-0000-4000-8000-0000000000a5" // viewer in acme, owner of beta
+		otto   = "00000000-0000-4000-8000-0000000000a6" // member of nothing
+		admin  = "00000000-0000-4000-8000-0000000000a1"
+	)
+
+	f := newPZFixture(t)
+
+	ip := "203.0.113.7"
+	now := time.Now().UTC()
+
+	event := func(i int, project, msg string) *models.AuditLog {
+		return &models.AuditLog{
+			ID:          fmt.Sprintf("00000000-0000-4000-8000-%012d", i),
+			Action:      "project.member_added",
+			ProjectID:   &project,
+			DetailsJSON: json.RawMessage(`{"message":"` + msg + `","actor":"olivia"}`),
+			IPAddress:   &ip,
+			CreatedAt:   now.Add(-time.Duration(i) * time.Minute),
+		}
+	}
+
+	f.db.audits = []*models.AuditLog{
+		event(1, pzAcme, "acme-1"), event(2, pzBeta, "beta-secret"), event(3, pzAcme, "acme-2"), event(4, pzBeta, "beta-secret-2"),
+	}
+
+	messages := func(out map[string]any) []string {
+		var got []string
+
+		for _, e := range out["data"].([]any) {
+			entry := e.(map[string]any)
+			got = append(got, entry["message"].(string))
+
+			if _, leaked := entry["ip"]; leaked {
+				t.Errorf("activity entry exposes the client address: %v", entry)
+			}
+		}
+
+		return got
+	}
+
+	// Members of acme (any role) see acme's events and nothing of beta.
+	for _, user := range []string{olivia, dana, vic, admin} {
+		out := f.expect(user, http.MethodGet, "/api/v1/projects/acme/activity", "", http.StatusOK)
+		if got := messages(out); !slices.Equal(got, []string{"acme-1", "acme-2"}) {
+			t.Errorf("user %s: acme activity = %v, want [acme-1 acme-2]", user, got)
+		}
+	}
+
+	// The viewer of acme who owns beta gets one feed per project.
+	out := f.expect(vic, http.MethodGet, "/api/v1/projects/beta/activity", "", http.StatusOK)
+	if got := messages(out); !slices.Equal(got, []string{"beta-secret", "beta-secret-2"}) {
+		t.Errorf("beta activity = %v", got)
+	}
+
+	// Paging stays inside the project.
+	out = f.expect(olivia, http.MethodGet, "/api/v1/projects/acme/activity?per_page=1", "", http.StatusOK)
+	if out["has_more"] != true || out["next_cursor"] == "" {
+		t.Fatalf("first page = %v, want has_more and a cursor", out)
+	}
+
+	// Not a member (acme-only members asking for beta, and a member of nothing): 404, the same as an unknown project.
+	ghost := f.expect(otto, http.MethodGet, "/api/v1/projects/ghost/activity", "", http.StatusNotFound)
+
+	for _, c := range []struct{ user, project string }{{olivia, "beta"}, {dana, "beta"}, {otto, "acme"}, {otto, "beta"}} {
+		got := f.expect(c.user, http.MethodGet, "/api/v1/projects/"+c.project+"/activity", "", http.StatusNotFound)
+		if got["error"] != ghost["error"] {
+			t.Errorf("user %s on %s: body %v differs from unknown project body %v", c.user, c.project, got, ghost)
+		}
+	}
+
+	// A malformed cursor is a client error, anonymous callers are not members.
+	f.expect(olivia, http.MethodGet, "/api/v1/projects/acme/activity?cursor=%21%21", "", http.StatusBadRequest)
+	f.expect("", http.MethodGet, "/api/v1/projects/acme/activity", "", http.StatusUnauthorized)
+
+	// Deploy tokens carry no project role: refused like on every other project read.
+	statusOf := func(path string) int {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+f.deployToken(olivia))
+
+		rw := httptest.NewRecorder()
+		f.router.ServeHTTP(rw, req)
+
+		return rw.Code
+	}
+
+	if got, want := statusOf("/api/v1/projects/acme/activity"), statusOf("/api/v1/projects/acme/members"); got != want || got < 400 {
+		t.Errorf("deploy token activity = %d, members = %d; want the same refusal", got, want)
+	}
 }

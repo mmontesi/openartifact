@@ -83,6 +83,7 @@ describe('the one tab convention', () => {
       '/projects/my%20p?tab=usage',
       '/projects/my%20p?tab=members',
       '/projects/my%20p?tab=tokens',
+      '/projects/my%20p?tab=activity',
       '/projects/my%20p?tab=settings',
     ])
     expect(wrapper.find('nav a[aria-current="page"]').text()).toContain('Members')

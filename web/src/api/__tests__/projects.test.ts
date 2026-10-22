@@ -13,6 +13,7 @@ import {
   getProjectQuota,
   getProjectSettings,
   getProjectUsage,
+  listProjectActivity,
   listProjectCleanupPolicies,
   listProjectGroups,
   setProjectQuota,
@@ -202,5 +203,22 @@ describe('projects api', () => {
     await deleteProjectCleanupPolicy('p', 'c1')
     expect(lastCall().url).toBe('/api/v1/projects/p/cleanup-policies/c1')
     expect(lastCall().init.method).toBe('DELETE')
+  })
+
+  it('lists activity with keyset paging', async () => {
+    spy = spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      json({ data: [{ id: 'e1' }], per_page: 10, has_more: true, next_cursor: 'c2' }),
+    )
+    expect(await listProjectActivity('p/q', { cursor: 'c1', limit: 10 })).toEqual({
+      items: [{ id: 'e1' } as never],
+      hasMore: true,
+      nextCursor: 'c2',
+    })
+    expect(lastCall().url).toBe('/api/v1/projects/p%2Fq/activity?cursor=c1&per_page=10')
+
+    spy.mockRestore()
+    spy = spyOn(globalThis, 'fetch').mockImplementation(async () => json({}))
+    expect(await listProjectActivity('p')).toEqual({ items: [], hasMore: false, nextCursor: null })
+    expect(lastCall().url).toBe('/api/v1/projects/p/activity')
   })
 })

@@ -279,3 +279,90 @@ func TestAuditTotalAvoidsCountOnLargeTables(t *testing.T) {
 		})
 	}
 }
+
+// A project's activity is the entries naming the project plus those of the
+// repositories it owns, never another project's, and it pages by keyset.
+func TestAuditProjectScopeIncludesOwnedRepositoriesOnly(t *testing.T) {
+	pg := freshPostgres(t, 5)
+	ctx := context.Background()
+
+	acme := &models.Project{Name: "acme"}
+	beta := &models.Project{Name: "beta"}
+
+	for _, p := range []*models.Project{acme, beta} {
+		if err := pg.CreateProject(ctx, p); err != nil {
+			t.Fatalf("CreateProject %s: %v", p.Name, err)
+		}
+	}
+
+	mkRepo := func(name string, project *models.Project) *models.Repository {
+		r := &models.Repository{Name: name, Format: "raw", RepoType: "hosted", ProjectID: &project.ID}
+		if err := pg.CreateRepository(ctx, r); err != nil {
+			t.Fatalf("CreateRepository %s: %v", name, err)
+		}
+
+		return r
+	}
+
+	acmeRepo, betaRepo := mkRepo("acme-raw", acme), mkRepo("beta-raw", beta)
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	ids := map[string]string{}
+	seed := func(i int, key, action string, project, repo *string) {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i)
+		ids[key] = id
+
+		if _, err := pg.GetDB().ExecContext(ctx,
+			`INSERT INTO audit_logs (id, action, created_at, actor_type, details_json, project_id, repository_id) VALUES ($1, $2, $3, 'user', '{}', $4, $5)`,
+			id, action, base.Add(time.Duration(i)*time.Second), project, repo); err != nil {
+			t.Fatalf("seed %s: %v", key, err)
+		}
+	}
+
+	seed(1, "acme-project", "project.member_added", &acme.ID, nil)
+	seed(2, "acme-repo", "artifact.purged", nil, &acmeRepo.ID)
+	seed(3, "beta-project", "project.member_added", &beta.ID, nil)
+	seed(4, "beta-repo", "artifact.purged", nil, &betaRepo.ID)
+	seed(5, "global", "http.request", nil, nil)
+	seed(6, "acme-both", "project.repository_created", &acme.ID, &acmeRepo.ID) // matches both branches: listed once
+
+	want := []string{ids["acme-both"], ids["acme-repo"], ids["acme-project"]} // newest first
+
+	got, pages := walkAuditKeyset(t, pg, models.AuditListParams{ProjectID: acme.ID, Limit: 1, NoTotal: true})
+	if !slices.Equal(got, want) {
+		t.Fatalf("acme activity = %v, want %v", got, want)
+	}
+
+	if len(pages) != 3 {
+		t.Errorf("pages = %v, want one entry per page", pages)
+	}
+
+	page, err := pg.ListAuditLogs(ctx, models.AuditListParams{ProjectID: beta.ID, Limit: 10, NoTotal: true})
+	if err != nil {
+		t.Fatalf("ListAuditLogs beta: %v", err)
+	}
+
+	if gotBeta, wantBeta := auditIDs(page.Logs), []string{ids["beta-repo"], ids["beta-project"]}; !slices.Equal(gotBeta, wantBeta) || page.Next != nil || page.Total != 0 {
+		t.Errorf("beta activity = %v (next %v, total %d), want %v with no count", gotBeta, page.Next, page.Total, wantBeta)
+	}
+
+	// The filters narrow inside the project.
+	page, err = pg.ListAuditLogs(ctx, models.AuditListParams{ProjectID: acme.ID, Limit: 10, Action: "purged"})
+	if err != nil || !slices.Equal(auditIDs(page.Logs), []string{ids["acme-repo"]}) {
+		t.Errorf("filtered = %v, %v", auditIDs(page.Logs), err)
+	}
+
+	// A repository moved to another project takes its history along.
+	if err := pg.MoveRepositoryToProject(ctx, acmeRepo.ID, beta.ID, 0); err != nil {
+		t.Fatalf("MoveRepositoryToProject: %v", err)
+	}
+
+	page, err = pg.ListAuditLogs(ctx, models.AuditListParams{ProjectID: beta.ID, Limit: 10, NoTotal: true})
+	if err != nil {
+		t.Fatalf("ListAuditLogs beta after move: %v", err)
+	}
+
+	if !slices.Contains(auditIDs(page.Logs), ids["acme-repo"]) {
+		t.Errorf("beta activity after transfer = %v, want it to hold the moved repository's entries", auditIDs(page.Logs))
+	}
+}

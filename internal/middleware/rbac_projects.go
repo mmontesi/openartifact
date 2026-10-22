@@ -81,7 +81,7 @@ func projectItemAction(method string) (auth.ProjectAction, bool) {
 func projectCollectionAction(method, collection string) (auth.ProjectAction, bool) {
 	switch {
 	case method == http.MethodGet && (collection == "repositories" || collection == "members" || collection == "groups" ||
-		collection == "usage" || collection == "quota" || collection == "cleanup-policies"):
+		collection == "usage" || collection == "quota" || collection == "cleanup-policies" || collection == "activity"):
 		return auth.ProjectActionRead, true
 	case (method == http.MethodPut && collection == "quota") || (method == http.MethodPost && collection == "cleanup-policies"):
 		return auth.ProjectActionUpdate, true

@@ -55,7 +55,19 @@ export const enProjects = {
   'projects.tab.usage': 'Usage',
   'projects.tab.members': 'Members',
   'projects.tab.tokens': 'Tokens',
+  'projects.tab.activity': 'Activity',
   'projects.tab.settings': 'Settings',
+
+  // Activity tab
+  'projects.activity.title': 'Activity',
+  'projects.activity.hint': 'Changes to this project and events on the repositories it owns, newest first.',
+  'projects.activity.empty': 'No activity recorded yet',
+  'projects.activity.loadFailed': 'Failed to load the activity',
+  'projects.activity.loadMore': 'Load more',
+  'projects.activity.column.when': 'When',
+  'projects.activity.column.actor': 'Actor',
+  'projects.activity.column.action': 'Event',
+  'projects.activity.column.details': 'Details',
 
   // Overview
   'projects.overview.facts': 'Project',
