@@ -53,6 +53,7 @@ Self-hosted artifact repository for 16 package formats. The [project README](../
 | Page | Contents |
 |---|---|
 | [Storage](operations/storage.md) | Blob backends and their settings, content addressing, deduplication |
+| [Storage tiers](operations/storage-tiering.md) | Named tiers on several backends, lifecycle policies, the crash-safe mover, promote-on-read, dry run |
 | [Trash](operations/trash.md) | Soft delete: retention, restore, purge, immutable releases, repository delete confirmation |
 | [Backup](operations/backup.md) | Backup and restore of records and blobs |
 | [Monitoring](operations/monitoring.md) | Health, Prometheus metrics, audit log, logging |

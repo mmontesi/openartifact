@@ -58,6 +58,7 @@ import (
 	"github.com/openartifact/openartifact/internal/search"
 	"github.com/openartifact/openartifact/internal/secrets"
 	"github.com/openartifact/openartifact/internal/storage"
+	"github.com/openartifact/openartifact/internal/tiering"
 	"github.com/openartifact/openartifact/internal/trash"
 	"github.com/openartifact/openartifact/internal/webhook"
 	"github.com/openartifact/openartifact/internal/worker"
@@ -247,7 +248,17 @@ func run(args []string) error {
 		return fail("failed to initialize storage", err)
 	}
 
-	blobStore := storage.NewMetricsBlobStore(rawBlobStore, reg)
+	// Storage tiers (docs/operations/storage-tiering.md): reads find a blob on
+	// whichever tier holds it, new blobs land on the primary store. With no
+	// tier besides the primary one the wrapper forwards straight to it.
+	tierRegistry := tiering.NewRegistry(db, rawBlobStore, cfg.Storage, log)
+	tierRegistry.Start(context.Background(), cfg.Tiering.RefreshInterval)
+
+	tierAccess := tiering.NewAccessTracker(db, cfg.Tiering.AccessFlushInterval, log)
+	tierAccess.Start()
+
+	tieredStore := tiering.NewStore(tierRegistry, db, tierAccess, reg, log)
+	blobStore := storage.NewMetricsBlobStore(tieredStore, reg)
 
 	log.Infow("Storage initialized", "type", cfg.Storage.Type, "path", cfg.Storage.Path)
 
@@ -333,6 +344,15 @@ func run(args []string) error {
 	trashPurgeWorker.SetPublisher(webhookDispatcher)
 	trashPurgeWorker.Start()
 
+	// Storage tier mover: relocates blobs between tiers per policy, crash-safe
+	// and throttled; one replica at a time (advisory lock).
+	tierMover := tiering.NewMover(db, tierRegistry, tieredStore, tiering.NewThrottle(cfg.Tiering.MaxBytesPerSecond),
+		tiering.MoverConfig{VerifyReadback: cfg.Tiering.VerifyReadback}, reg, log)
+	tierEngine := tiering.NewEngine(db, tierRegistry, tierMover,
+		tiering.EngineConfig{Batch: cfg.Tiering.Batch, Concurrency: cfg.Tiering.Concurrency}, reg, log)
+	tierWorker := worker.NewTierMoverWorker(tierEngine, db.GetDB(), log, cfg.Tiering.Interval, cfg.Tiering.Enabled)
+	tierWorker.Start()
+
 	// stopWorkers stops every background worker exactly once. It runs in the
 	// shutdown sequence (after HTTP stops, before the audit logger flushes) and
 	// also via defer so early-return paths never leak goroutines.
@@ -345,6 +365,7 @@ func run(args []string) error {
 		stopWorkersOnce.Do(func() {
 			for _, stop := range []func(){
 				webhookDispatcher.Stop, cleanupWorker.Stop, presignedUploadWorker.Stop, dockerGCWorker.Stop, dockerUploadSweeper.Stop, trashPurgeWorker.Stop, authPurgeWorker.Stop, proxyCacheWorker.Stop,
+				tierWorker.Stop, tierRegistry.Stop, tierAccess.Stop,
 			} {
 				stop()
 			}
@@ -625,6 +646,8 @@ func run(args []string) error {
 
 	authedAPI := chi.NewRouter()
 	authedAPI.Use(rbacMiddleware)
+	// Marks client downloads so the tiered store records blob access.
+	authedAPI.Use(middleware.TrackBlobAccess)
 	// Admin-only origin timestamps for migrations (X-OA-Import-Created-At).
 	authedAPI.Use(importmeta.Middleware(evaluator))
 	authedAPI.Use(middleware.CSRFMiddleware(cfg.BaseURL))
@@ -642,6 +665,7 @@ func run(args []string) error {
 	api.NewSelfTokensHandler(db, log, evaluator).Register(authedAPI)
 	api.NewAdminAuditHandler(db, log, evaluator).Register(authedAPI)
 	api.NewAdminStorageHandler(db, log, evaluator).Register(authedAPI)
+	api.NewAdminTieringHandler(db, tierRegistry, tierEngine, tierWorker, log, evaluator).Register(authedAPI)
 	api.NewAdminGPGHandler(db, log, evaluator).Register(authedAPI)
 	sysInfoHandler.RegisterAuthed(authedAPI)
 

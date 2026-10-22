@@ -49,6 +49,7 @@ function makeRouter() {
       { path: '/admin/tokens', name: 'admin-tokens', component: { template: '<div/>' } },
       { path: '/admin/audit', name: 'admin-audit', component: { template: '<div/>' } },
       { path: '/admin/storage', name: 'admin-storage', component: { template: '<div/>' } },
+      { path: '/admin/storage/tiers', name: 'admin-storage-tiers', component: { template: '<div/>' } },
       { path: '/admin/backup', name: 'admin-backup', component: { template: '<div/>' } },
       { path: '/admin/webhooks', name: 'admin-webhooks', component: { template: '<div/>' } },
       { path: '/admin/system', name: 'admin-system', component: { template: '<div/>' } },
@@ -128,6 +129,16 @@ describe('AppSidebar', () => {
     session.user = makeUser({ is_admin: true })
     const { wrapper } = mountSidebar()
     expect(wrapper.html()).toContain('/admin/users')
+  })
+
+  it('links Storage Tiers next to Storage Backends and highlights only the matching one', async () => {
+    session.user = makeUser({ is_admin: true })
+    const { wrapper, router } = mountSidebar()
+    await router.push('/admin/storage/tiers')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Storage Tiers')
+    expect(wrapper.find('a[href="/admin/storage/tiers"]').classes()).toContain('bg-surface-hover')
+    expect(wrapper.find('a[href="/admin/storage"]').classes()).not.toContain('bg-surface-hover')
   })
 
   it('hides Admin section when user is not admin', async () => {

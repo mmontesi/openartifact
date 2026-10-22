@@ -48,13 +48,15 @@ const props = defineProps<{
   icon: Component
   collapsed?: boolean
   badge?: string | number
+  /** Active only on this exact path, for a link whose path prefixes a sibling link (`/admin/storage` vs `/admin/storage/tiers`). */
+  exact?: boolean
 }>()
 
 const route = useRoute()
 
 const isActive = computed(() => {
-  if (props.to === '/') {
-    return route.path === '/'
+  if (props.to === '/' || props.exact) {
+    return route.path === props.to
   }
   return route.path.startsWith(props.to)
 })

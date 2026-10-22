@@ -108,6 +108,10 @@ Migrations `028` (delta patch blob index), `029` and `031` (audit actions). Chan
 | Audit | Admin changes to users, groups, permission targets, SSO providers and tokens issued for other users are audited (`user.*`, `group.*`, `permission_target.*`, `sso_provider.*`, `token.created_for_user`). |
 | `resetpw` | Defaults to `sslmode=require`. |
 
+#### Storage tiers (migration `032`)
+
+Migration `032` adds `blobs.last_accessed_at` and `blobs.tier_changed_at` (nullable, no rewrite), the tables `storage_tiers`, `storage_policies` and `storage_tier_moves`, and seeds the tier `hot`, which is the configured primary store. `032_storage_tiers_indexes` builds the partial index `idx_blobs_tier_reads` with `CREATE INDEX CONCURRENTLY` (re-runnable). Nothing moves until you add a tier and a policy: with only `hot` the mover is a no-op and every blob keeps its placement. Download times start being recorded after the upgrade, so an idle-based policy treats older blobs as "idle since creation". New settings: `tiering.*` ([configuration](configuration.md)). See [storage tiers](../operations/storage-tiering.md).
+
 #### Database indexes and the `pg_trgm` extension
 
 Migration `030` needs the PostgreSQL `pg_trgm` extension (`CREATE EXTENSION IF NOT EXISTS pg_trgm`). It is a trusted extension since PostgreSQL 13, so the database owner can create it; it ships in the official `postgres` images and in the `postgresql-contrib` package of distributions that split it. On a managed service, allow-list it first, or run `CREATE EXTENSION pg_trgm` as an administrator before the upgrade. Without it the migration fails and the server exits at startup.

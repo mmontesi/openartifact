@@ -181,16 +181,21 @@ type BackupJob struct {
 
 // Global content-addressed blob store. One row per unique sha256. Cross-format, cross-repo deduplication. GC via ref_count. All format tables reference blobs via blob_id FK.
 type Blob struct {
-	ID               string  `db:"id" json:"id"`
-	Sha256           string  `db:"sha256" json:"sha256"`
-	SizeBytes        int64   `db:"size_bytes" json:"size_bytes"`
-	MediaType        string  `db:"media_type" json:"media_type"`
+	ID        string `db:"id" json:"id"`
+	Sha256    string `db:"sha256" json:"sha256"`
+	SizeBytes int64  `db:"size_bytes" json:"size_bytes"`
+	MediaType string `db:"media_type" json:"media_type"`
+	// Authoritative placement: the storage backend holding the blob (NULL = the primary store the server is configured with). Changed only by the tier mover, in one transaction.
 	StorageBackendID *string `db:"storage_backend_id" json:"storage_backend_id"`
 	// Key used to retrieve the blob from the configured storage backend.
 	BlobKey string `db:"blob_key" json:"blob_key"`
 	// Number of format table rows referencing this blob. When 0, the blob is a GC candidate.
 	RefCount  int32     `db:"ref_count" json:"ref_count"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	// Last client download, coalesced (resolution storage tiering access resolution); NULL = never read since tracking started.
+	LastAccessedAt *time.Time `db:"last_accessed_at" json:"last_accessed_at"`
+	// When the mover last flipped the placement; NULL = never moved.
+	TierChangedAt *time.Time `db:"tier_changed_at" json:"tier_changed_at"`
 }
 
 // Immutable audit trail of every bundle promotion attempt
@@ -1006,6 +1011,25 @@ type StorageBackend struct {
 	UpdatedAt     time.Time       `db:"updated_at" json:"updated_at"`
 }
 
+// Ordered lifecycle policies: the first enabled policy whose conditions match a blob names the tier it belongs on.
+type StoragePolicy struct {
+	ID             string    `db:"id" json:"id"`
+	Name           string    `db:"name" json:"name"`
+	Enabled        bool      `db:"enabled" json:"enabled"`
+	Position       int32     `db:"position" json:"position"`
+	TargetTierID   string    `db:"target_tier_id" json:"target_tier_id"`
+	FromTierID     *string   `db:"from_tier_id" json:"from_tier_id"`
+	MinAgeSeconds  *int64    `db:"min_age_seconds" json:"min_age_seconds"`
+	MinIdleSeconds *int64    `db:"min_idle_seconds" json:"min_idle_seconds"`
+	MinSizeBytes   *int64    `db:"min_size_bytes" json:"min_size_bytes"`
+	MaxSizeBytes   *int64    `db:"max_size_bytes" json:"max_size_bytes"`
+	RepoGlob       *string   `db:"repo_glob" json:"repo_glob"`
+	Formats        []string  `db:"formats" json:"formats"`
+	PathGlob       *string   `db:"path_glob" json:"path_glob"`
+	CreatedAt      time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at" json:"updated_at"`
+}
+
 // Storage quotas and usage tracking per repository
 type StorageQuota struct {
 	ID                   string    `db:"id" json:"id"`
@@ -1017,6 +1041,31 @@ type StorageQuota struct {
 	CurrentArtifactCount int64     `db:"current_artifact_count" json:"current_artifact_count"`
 	CreatedAt            time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt            time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// Named storage tiers. backend_id NULL is the primary (hot) store from the server configuration.
+type StorageTier struct {
+	ID            string    `db:"id" json:"id"`
+	Name          string    `db:"name" json:"name"`
+	BackendID     *string   `db:"backend_id" json:"backend_id"`
+	Rank          int32     `db:"rank" json:"rank"`
+	PromoteOnRead bool      `db:"promote_on_read" json:"promote_on_read"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// Crash-recovery journal of the storage tier mover: one row per blob move that has started and not yet finished cleanup.
+type StorageTierMove struct {
+	Sha256        string    `db:"sha256" json:"sha256"`
+	FromBackendID *string   `db:"from_backend_id" json:"from_backend_id"`
+	ToBackendID   *string   `db:"to_backend_id" json:"to_backend_id"`
+	State         string    `db:"state" json:"state"`
+	Reason        string    `db:"reason" json:"reason"`
+	SizeBytes     int64     `db:"size_bytes" json:"size_bytes"`
+	Attempts      int32     `db:"attempts" json:"attempts"`
+	LastError     *string   `db:"last_error" json:"last_error"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type SystemSetting struct {

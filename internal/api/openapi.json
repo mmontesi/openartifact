@@ -825,6 +825,386 @@
           }
         }
       },
+      "StorageTier": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "True for the tier backed by the server's configured storage."
+          },
+          "backend": {
+            "type": "string",
+            "nullable": true,
+            "description": "Name of the storage backend the tier maps to; null for the primary tier."
+          },
+          "backend_kind": {
+            "type": "string"
+          },
+          "backend_status": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "integer"
+          },
+          "promote_on_read": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean",
+            "description": "False when this server could not open the tier's backend."
+          },
+          "blob_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StoragePolicy": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "target_tier": {
+            "type": "string"
+          },
+          "from_tier": {
+            "type": "string",
+            "nullable": true
+          },
+          "min_age_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "min_idle_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "min_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "max_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "repo_glob": {
+            "type": "string",
+            "nullable": true
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "path_glob": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StoragePolicyInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "target_tier"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Defaults to true."
+          },
+          "position": {
+            "type": "integer",
+            "description": "Evaluation order, lowest first. New policies default to after the last one."
+          },
+          "target_tier": {
+            "type": "string",
+            "description": "Name of the tier matching blobs belong on."
+          },
+          "from_tier": {
+            "type": "string",
+            "nullable": true,
+            "description": "Only blobs currently on this tier."
+          },
+          "min_age_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "min_idle_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "min_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "max_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "repo_glob": {
+            "type": "string",
+            "nullable": true,
+            "description": "Repository name glob: * matches within a segment, ** across '/', ? one character."
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "path_glob": {
+            "type": "string",
+            "nullable": true,
+            "description": "Package path glob (same syntax as repo_glob)."
+          }
+        }
+      },
+      "TierDryRun": {
+        "type": "object",
+        "properties": {
+          "scanned": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the scan stopped at its row cap; totals are then a lower bound."
+          },
+          "would_move": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "bytes": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "policies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "policy": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "sample": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string"
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "policy": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "last_accessed_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "TierMoverStatus": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "interval_seconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_pass": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "started_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "finished_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "recovered": {
+                "type": "integer"
+              },
+              "promoted": {
+                "type": "integer"
+              },
+              "moved": {
+                "type": "integer"
+              },
+              "skipped": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              },
+              "bytes": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "scanned": {
+                "type": "integer"
+              },
+              "aborted": {
+                "type": "boolean"
+              }
+            }
+          },
+          "pending_total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string"
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "copying",
+                    "flipped"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "attempts": {
+                  "type": "integer"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
       "StorageBackend": {
         "type": "object",
         "properties": {
@@ -7132,6 +7512,504 @@
           },
           "404": {
             "description": "Storage backend not found"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/tiering/tiers": {
+      "get": {
+        "summary": "List storage tiers",
+        "description": "Lists the storage tiers (hottest first) with their placement: blob count and bytes per tier (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of tiers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StorageTier"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create storage tier",
+        "description": "Maps an existing storage backend to a named tier (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "backend"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "backend": {
+                    "type": "string",
+                    "description": "Name of an existing storage backend."
+                  },
+                  "rank": {
+                    "type": "integer",
+                    "description": "Position from hot (low) to cold (high); defaults to after the last tier."
+                  },
+                  "promote_on_read": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tier created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageTier"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "409": {
+            "description": "Name or backend already used by a tier"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/tiering/tiers/{name}": {
+      "patch": {
+        "summary": "Update storage tier",
+        "description": "Renames a tier or changes its rank or promote-on-read flag (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "rank": {
+                    "type": "integer"
+                  },
+                  "promote_on_read": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tier updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageTier"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Storage tier not found"
+          },
+          "409": {
+            "description": "Name already used"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete storage tier",
+        "description": "Deletes a tier that holds no blobs and is not referenced by a policy; the primary tier cannot be deleted (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Tier deleted"
+          },
+          "400": {
+            "description": "The primary tier cannot be deleted"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Storage tier not found"
+          },
+          "409": {
+            "description": "Tier still holds blobs, has moves in progress or is used by a policy"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/tiering/policies": {
+      "get": {
+        "summary": "List storage policies",
+        "description": "Lists lifecycle policies in evaluation order (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of policies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StoragePolicy"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create storage policy",
+        "description": "Creates a lifecycle policy; the first enabled policy matching a blob decides its tier (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoragePolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Policy created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoragePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "409": {
+            "description": "Name already used"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/tiering/policies/{id}": {
+      "get": {
+        "summary": "Get storage policy",
+        "description": "Gets a lifecycle policy (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoragePolicy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Storage policy not found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace storage policy",
+        "description": "Replaces every field of a lifecycle policy (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoragePolicyInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoragePolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Storage policy not found"
+          },
+          "409": {
+            "description": "Name already used"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete storage policy",
+        "description": "Deletes a lifecycle policy; blobs already moved stay where they are (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Policy deleted"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Storage policy not found"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/tiering/dry-run": {
+      "post": {
+        "summary": "Simulate storage policies",
+        "description": "Reports what a mover pass would move now (counts, bytes, per route and policy, and a sample) without changing anything. With policy set only that draft is simulated; otherwise every enabled policy and promote-on-read are (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "policy": {
+                    "$ref": "#/components/schemas/StoragePolicyInput"
+                  },
+                  "sample_limit": {
+                    "type": "integer",
+                    "description": "Between 0 and 200; default 200."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TierDryRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Admin access required"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/tiering/run": {
+      "post": {
+        "summary": "Run the tier mover now",
+        "description": "Queues an immediate mover pass on the replica holding the mover lock (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "responses": {
+          "202": {
+            "description": "Pass requested",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "started": {
+                      "type": "boolean",
+                      "description": "False when a pass was already running."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "409": {
+            "description": "The mover is disabled"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/tiering/status": {
+      "get": {
+        "summary": "Tier mover status",
+        "description": "State of the background mover and the moves still in its crash-recovery journal (admin only)",
+        "tags": [
+          "Admin",
+          "Storage"
+        ],
+        "responses": {
+          "200": {
+            "description": "Mover status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TierMoverStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required"
           }
         }
       }

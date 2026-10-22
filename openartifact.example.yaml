@@ -173,3 +173,17 @@ workers:
 trash:
   retentionDays: 7
   purgeInterval: 15m
+
+# Storage tiers and lifecycle policies. Tiers (named storage backends) and the
+# policies that move blobs between them are managed in the admin UI/API; this
+# section only tunes the background mover. With only the primary store
+# configured it has no effect. See docs/operations/storage-tiering.md.
+tiering:
+  enabled: true               # run the mover (reads work from every tier regardless)
+  interval: 5m                # pause between passes; 0 disables the schedule
+  batch: 200                  # most blobs one pass moves
+  concurrency: 2              # blobs copied at once
+  maxBytesPerSecond: 67108864 # total copy bandwidth cap (0 = unlimited)
+  verifyReadback: true        # re-hash each copy on the target tier before flipping
+  accessFlushInterval: 30s    # how often recorded downloads are written to the database
+  refreshInterval: 30s        # how often each replica reloads the tier list

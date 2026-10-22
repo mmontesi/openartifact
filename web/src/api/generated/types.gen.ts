@@ -356,6 +356,143 @@ export type PermissionTarget = {
     updated_at?: string;
 };
 
+export type StorageTier = {
+    id?: string;
+    name?: string;
+    /**
+     * True for the tier backed by the server's configured storage.
+     */
+    primary?: boolean;
+    /**
+     * Name of the storage backend the tier maps to; null for the primary tier.
+     */
+    backend?: string | null;
+    backend_kind?: string;
+    backend_status?: string;
+    rank?: number;
+    promote_on_read?: boolean;
+    /**
+     * False when this server could not open the tier's backend.
+     */
+    available?: boolean;
+    blob_count?: number;
+    total_bytes?: number;
+    created_at?: string;
+    updated_at?: string;
+};
+
+export type StoragePolicy = {
+    id?: string;
+    name?: string;
+    enabled?: boolean;
+    position?: number;
+    target_tier?: string;
+    from_tier?: string | null;
+    min_age_seconds?: number | null;
+    min_idle_seconds?: number | null;
+    min_size_bytes?: number | null;
+    max_size_bytes?: number | null;
+    repo_glob?: string | null;
+    formats?: Array<string>;
+    path_glob?: string | null;
+    created_at?: string;
+    updated_at?: string;
+};
+
+export type StoragePolicyInput = {
+    name: string;
+    /**
+     * Defaults to true.
+     */
+    enabled?: boolean;
+    /**
+     * Evaluation order, lowest first. New policies default to after the last one.
+     */
+    position?: number;
+    /**
+     * Name of the tier matching blobs belong on.
+     */
+    target_tier: string;
+    /**
+     * Only blobs currently on this tier.
+     */
+    from_tier?: string | null;
+    min_age_seconds?: number | null;
+    min_idle_seconds?: number | null;
+    min_size_bytes?: number | null;
+    max_size_bytes?: number | null;
+    /**
+     * Repository name glob: * matches within a segment, ** across '/', ? one character.
+     */
+    repo_glob?: string | null;
+    formats?: Array<string>;
+    /**
+     * Package path glob (same syntax as repo_glob).
+     */
+    path_glob?: string | null;
+};
+
+export type TierDryRun = {
+    scanned?: number;
+    /**
+     * True when the scan stopped at its row cap; totals are then a lower bound.
+     */
+    truncated?: boolean;
+    would_move?: {
+        count?: number;
+        bytes?: number;
+    };
+    routes?: Array<{
+        from?: string;
+        to?: string;
+        count?: number;
+        bytes?: number;
+    }>;
+    policies?: Array<{
+        policy?: string;
+        count?: number;
+        bytes?: number;
+    }>;
+    sample?: Array<{
+        sha256?: string;
+        size_bytes?: number;
+        from?: string;
+        to?: string;
+        policy?: string;
+        created_at?: string;
+        last_accessed_at?: string | null;
+    }>;
+};
+
+export type TierMoverStatus = {
+    enabled?: boolean;
+    running?: boolean;
+    interval_seconds?: number;
+    last_pass?: {
+        started_at?: string;
+        finished_at?: string;
+        recovered?: number;
+        promoted?: number;
+        moved?: number;
+        skipped?: number;
+        failed?: number;
+        bytes?: number;
+        scanned?: number;
+        aborted?: boolean;
+    } | null;
+    pending_total?: number;
+    pending?: Array<{
+        sha256?: string;
+        size_bytes?: number;
+        from?: string;
+        to?: string;
+        state?: 'copying' | 'flipped';
+        reason?: string;
+        attempts?: number;
+        updated_at?: string;
+    }>;
+};
+
 export type StorageBackend = {
     id?: string;
     name?: string;
@@ -3662,6 +3799,392 @@ export type PostApiV1AdminStorageByNameTestResponses = {
 };
 
 export type PostApiV1AdminStorageByNameTestResponse = PostApiV1AdminStorageByNameTestResponses[keyof PostApiV1AdminStorageByNameTestResponses];
+
+export type GetApiV1AdminTieringTiersData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/tiering/tiers';
+};
+
+export type GetApiV1AdminTieringTiersErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+};
+
+export type GetApiV1AdminTieringTiersResponses = {
+    /**
+     * List of tiers
+     */
+    200: {
+        total?: number;
+        items?: Array<StorageTier>;
+    };
+};
+
+export type GetApiV1AdminTieringTiersResponse = GetApiV1AdminTieringTiersResponses[keyof GetApiV1AdminTieringTiersResponses];
+
+export type PostApiV1AdminTieringTiersData = {
+    body: {
+        name: string;
+        /**
+         * Name of an existing storage backend.
+         */
+        backend: string;
+        /**
+         * Position from hot (low) to cold (high); defaults to after the last tier.
+         */
+        rank?: number;
+        promote_on_read?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/tiering/tiers';
+};
+
+export type PostApiV1AdminTieringTiersErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Name or backend already used by a tier
+     */
+    409: unknown;
+};
+
+export type PostApiV1AdminTieringTiersResponses = {
+    /**
+     * Tier created
+     */
+    201: StorageTier;
+};
+
+export type PostApiV1AdminTieringTiersResponse = PostApiV1AdminTieringTiersResponses[keyof PostApiV1AdminTieringTiersResponses];
+
+export type DeleteApiV1AdminTieringTiersByNameData = {
+    body?: never;
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/tiering/tiers/{name}';
+};
+
+export type DeleteApiV1AdminTieringTiersByNameErrors = {
+    /**
+     * The primary tier cannot be deleted
+     */
+    400: unknown;
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Storage tier not found
+     */
+    404: unknown;
+    /**
+     * Tier still holds blobs, has moves in progress or is used by a policy
+     */
+    409: unknown;
+};
+
+export type DeleteApiV1AdminTieringTiersByNameResponses = {
+    /**
+     * Tier deleted
+     */
+    204: void;
+};
+
+export type DeleteApiV1AdminTieringTiersByNameResponse = DeleteApiV1AdminTieringTiersByNameResponses[keyof DeleteApiV1AdminTieringTiersByNameResponses];
+
+export type PatchApiV1AdminTieringTiersByNameData = {
+    body: {
+        name?: string;
+        rank?: number;
+        promote_on_read?: boolean;
+    };
+    path: {
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/tiering/tiers/{name}';
+};
+
+export type PatchApiV1AdminTieringTiersByNameErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Storage tier not found
+     */
+    404: unknown;
+    /**
+     * Name already used
+     */
+    409: unknown;
+};
+
+export type PatchApiV1AdminTieringTiersByNameResponses = {
+    /**
+     * Tier updated
+     */
+    200: StorageTier;
+};
+
+export type PatchApiV1AdminTieringTiersByNameResponse = PatchApiV1AdminTieringTiersByNameResponses[keyof PatchApiV1AdminTieringTiersByNameResponses];
+
+export type GetApiV1AdminTieringPoliciesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/tiering/policies';
+};
+
+export type GetApiV1AdminTieringPoliciesErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+};
+
+export type GetApiV1AdminTieringPoliciesResponses = {
+    /**
+     * List of policies
+     */
+    200: {
+        total?: number;
+        items?: Array<StoragePolicy>;
+    };
+};
+
+export type GetApiV1AdminTieringPoliciesResponse = GetApiV1AdminTieringPoliciesResponses[keyof GetApiV1AdminTieringPoliciesResponses];
+
+export type PostApiV1AdminTieringPoliciesData = {
+    body: StoragePolicyInput;
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/tiering/policies';
+};
+
+export type PostApiV1AdminTieringPoliciesErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Name already used
+     */
+    409: unknown;
+};
+
+export type PostApiV1AdminTieringPoliciesResponses = {
+    /**
+     * Policy created
+     */
+    201: StoragePolicy;
+};
+
+export type PostApiV1AdminTieringPoliciesResponse = PostApiV1AdminTieringPoliciesResponses[keyof PostApiV1AdminTieringPoliciesResponses];
+
+export type DeleteApiV1AdminTieringPoliciesByIdData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/tiering/policies/{id}';
+};
+
+export type DeleteApiV1AdminTieringPoliciesByIdErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Storage policy not found
+     */
+    404: unknown;
+};
+
+export type DeleteApiV1AdminTieringPoliciesByIdResponses = {
+    /**
+     * Policy deleted
+     */
+    204: void;
+};
+
+export type DeleteApiV1AdminTieringPoliciesByIdResponse = DeleteApiV1AdminTieringPoliciesByIdResponses[keyof DeleteApiV1AdminTieringPoliciesByIdResponses];
+
+export type GetApiV1AdminTieringPoliciesByIdData = {
+    body?: never;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/tiering/policies/{id}';
+};
+
+export type GetApiV1AdminTieringPoliciesByIdErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Storage policy not found
+     */
+    404: unknown;
+};
+
+export type GetApiV1AdminTieringPoliciesByIdResponses = {
+    /**
+     * Policy
+     */
+    200: StoragePolicy;
+};
+
+export type GetApiV1AdminTieringPoliciesByIdResponse = GetApiV1AdminTieringPoliciesByIdResponses[keyof GetApiV1AdminTieringPoliciesByIdResponses];
+
+export type PutApiV1AdminTieringPoliciesByIdData = {
+    body: StoragePolicyInput;
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/tiering/policies/{id}';
+};
+
+export type PutApiV1AdminTieringPoliciesByIdErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Storage policy not found
+     */
+    404: unknown;
+    /**
+     * Name already used
+     */
+    409: unknown;
+};
+
+export type PutApiV1AdminTieringPoliciesByIdResponses = {
+    /**
+     * Policy updated
+     */
+    200: StoragePolicy;
+};
+
+export type PutApiV1AdminTieringPoliciesByIdResponse = PutApiV1AdminTieringPoliciesByIdResponses[keyof PutApiV1AdminTieringPoliciesByIdResponses];
+
+export type PostApiV1AdminTieringDryRunData = {
+    body: {
+        policy?: StoragePolicyInput;
+        /**
+         * Between 0 and 200; default 200.
+         */
+        sample_limit?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/tiering/dry-run';
+};
+
+export type PostApiV1AdminTieringDryRunErrors = {
+    /**
+     * Invalid request
+     */
+    400: unknown;
+    /**
+     * Admin access required
+     */
+    403: unknown;
+};
+
+export type PostApiV1AdminTieringDryRunResponses = {
+    /**
+     * Simulation result
+     */
+    200: TierDryRun;
+};
+
+export type PostApiV1AdminTieringDryRunResponse = PostApiV1AdminTieringDryRunResponses[keyof PostApiV1AdminTieringDryRunResponses];
+
+export type PostApiV1AdminTieringRunData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/tiering/run';
+};
+
+export type PostApiV1AdminTieringRunErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * The mover is disabled
+     */
+    409: unknown;
+};
+
+export type PostApiV1AdminTieringRunResponses = {
+    /**
+     * Pass requested
+     */
+    202: {
+        /**
+         * False when a pass was already running.
+         */
+        started?: boolean;
+    };
+};
+
+export type PostApiV1AdminTieringRunResponse = PostApiV1AdminTieringRunResponses[keyof PostApiV1AdminTieringRunResponses];
+
+export type GetApiV1AdminTieringStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/tiering/status';
+};
+
+export type GetApiV1AdminTieringStatusErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+};
+
+export type GetApiV1AdminTieringStatusResponses = {
+    /**
+     * Mover status
+     */
+    200: TierMoverStatus;
+};
+
+export type GetApiV1AdminTieringStatusResponse = GetApiV1AdminTieringStatusResponses[keyof GetApiV1AdminTieringStatusResponses];
 
 export type GetApiV1AdminAuditData = {
     body?: never;

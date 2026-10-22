@@ -37,6 +37,8 @@ var (
 	errNegativeDockerGCGrace    = errors.New("workers.dockerGcGracePeriod must not be negative")
 	errNegativeWebhookRetention = errors.New("workers.webhookDeliveryRetentionDays must not be negative")
 	errNegativeTrashRetention   = errors.New("trash.retentionDays must not be negative")
+	errTieringBatch             = errors.New("tiering.batch and tiering.concurrency must be at least 1")
+	errTieringNegative          = errors.New("tiering.maxBytesPerSecond, accessFlushInterval and refreshInterval must not be negative")
 	errPlaceholderDBPassword    = errors.New("database.password is still the CHANGE_ME placeholder from the example files: set a real password")
 	errMaxOpenConnsTooSmall     = errors.New("database.maxOpenConns must be 0 (driver default) or at least 2: a blob-lock transaction pins one connection and its callback needs another")
 
@@ -57,6 +59,7 @@ type Config struct {
 	MCP      MCPConfig               `yaml:"mcp"`
 	Workers  WorkersConfig           `yaml:"workers"`
 	Trash    TrashConfig             `yaml:"trash"`
+	Tiering  TieringConfig           `yaml:"tiering"`
 	Projects ProjectsConfig          `yaml:"projects"`
 	BaseURL  string                  `yaml:"baseUrl"`
 }
@@ -108,6 +111,34 @@ type TrashConfig struct {
 	// PurgeInterval is the pause between purge passes. Zero or negative
 	// disables the schedule: nothing expires until an admin purges by hand.
 	PurgeInterval time.Duration `yaml:"purgeInterval"`
+}
+
+// TieringConfig tunes the storage tier mover (see docs/operations/storage-tiering.md).
+// Tiers and policies themselves are managed through the admin API; with no
+// tier besides the primary store configured none of this has any effect.
+type TieringConfig struct {
+	// Enabled switches the background mover on. Reads from every tier work
+	// regardless; only the movement of blobs between tiers depends on it.
+	Enabled bool `yaml:"enabled"`
+	// Interval is the pause between mover passes. Zero or negative disables the
+	// schedule; an admin can still start a pass by hand.
+	Interval time.Duration `yaml:"interval"`
+	// Batch caps how many blobs one pass moves; the rest wait for the next pass.
+	Batch int `yaml:"batch"`
+	// Concurrency is how many blobs are copied at once.
+	Concurrency int `yaml:"concurrency"`
+	// MaxBytesPerSecond caps the mover's total copy bandwidth (all concurrent
+	// copies together). Zero is unlimited.
+	MaxBytesPerSecond int64 `yaml:"maxBytesPerSecond"`
+	// VerifyReadback re-reads each copied blob from the target tier and
+	// compares its sha256 before the placement flips, on top of the size check.
+	VerifyReadback bool `yaml:"verifyReadback"`
+	// AccessFlushInterval is how often recorded blob downloads (used by
+	// "idle for N days" policies and promote-on-read) are written to the database.
+	AccessFlushInterval time.Duration `yaml:"accessFlushInterval"`
+	// RefreshInterval is how often each replica reloads the tier list, so a tier
+	// created on one replica is used by the others.
+	RefreshInterval time.Duration `yaml:"refreshInterval"`
 }
 
 type AuthConfig struct {
@@ -328,6 +359,16 @@ func defaultConfig() *Config {
 			RetentionDays: 7,
 			PurgeInterval: 15 * time.Minute,
 		},
+		Tiering: TieringConfig{
+			Enabled:             true,
+			Interval:            5 * time.Minute,
+			Batch:               200,
+			Concurrency:         2,
+			MaxBytesPerSecond:   64 << 20,
+			VerifyReadback:      true,
+			AccessFlushInterval: 30 * time.Second,
+			RefreshInterval:     30 * time.Second,
+		},
 		BaseURL: "http://localhost:8080",
 	}
 }
@@ -465,6 +506,16 @@ func applyEnvOverrides(cfg *Config) {
 	overrideInt(&cfg.Trash.RetentionDays, "OPENARTIFACT_TRASH_RETENTION")
 	overrideDuration(&cfg.Trash.PurgeInterval, "OPENARTIFACT_TRASH_PURGE_INTERVAL")
 
+	// Storage tiering
+	overrideBool(&cfg.Tiering.Enabled, "OPENARTIFACT_TIERING_ENABLED")
+	overrideDuration(&cfg.Tiering.Interval, "OPENARTIFACT_TIERING_INTERVAL")
+	overrideInt(&cfg.Tiering.Batch, "OPENARTIFACT_TIERING_BATCH")
+	overrideInt(&cfg.Tiering.Concurrency, "OPENARTIFACT_TIERING_CONCURRENCY")
+	overrideInt64(&cfg.Tiering.MaxBytesPerSecond, "OPENARTIFACT_TIERING_MAX_BYTES_PER_SECOND")
+	overrideBool(&cfg.Tiering.VerifyReadback, "OPENARTIFACT_TIERING_VERIFY_READBACK")
+	overrideDuration(&cfg.Tiering.AccessFlushInterval, "OPENARTIFACT_TIERING_ACCESS_FLUSH_INTERVAL")
+	overrideDuration(&cfg.Tiering.RefreshInterval, "OPENARTIFACT_TIERING_REFRESH_INTERVAL")
+
 	// Base URL
 	overrideString(&cfg.BaseURL, "BASE_URL")
 }
@@ -541,6 +592,10 @@ func (c *Config) Validate() error {
 		return errNegativeTrashRetention
 	}
 
+	if err := c.validateTiering(); err != nil {
+		return err
+	}
+
 	if c.Database.MaxOpenConns < 0 || c.Database.MaxOpenConns == 1 {
 		return errMaxOpenConnsTooSmall
 	}
@@ -554,6 +609,21 @@ func (c *Config) Validate() error {
 	}
 
 	return c.validatePresign()
+}
+
+// validateTiering checks the storage tiering settings.
+func (c *Config) validateTiering() error {
+	t := c.Tiering
+
+	if t.Batch < 1 || t.Concurrency < 1 {
+		return errTieringBatch
+	}
+
+	if t.MaxBytesPerSecond < 0 || t.AccessFlushInterval < 0 || t.RefreshInterval < 0 {
+		return errTieringNegative
+	}
+
+	return nil
 }
 
 // validatePresign checks the presigned-URL settings.

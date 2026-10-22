@@ -484,6 +484,11 @@ func (h *AdminStorageHandler) handleDelete(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.db.DeleteStorageBackend(r.Context(), backend.ID); err != nil {
+		if database.IsForeignKeyViolation(err) {
+			writeError(w, http.StatusConflict, "conflict", "storage backend is used by a storage tier or an in-progress move")
+			return
+		}
+
 		h.log.Errorw("failed to delete storage backend", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete storage backend")
 

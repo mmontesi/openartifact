@@ -116,6 +116,21 @@ PostgreSQL is the only supported database.
 | `OPENARTIFACT_TRASH_RETENTION` | `trash.retentionDays` | `7` | Days a deleted artifact, version or repository stays restorable before the purge worker removes it; repositories can override it (`trash_retention_days`); `0` disables the trash (deletes are immediate and permanent). Must not be negative. See [Trash](../operations/trash.md) |
 | `OPENARTIFACT_TRASH_PURGE_INTERVAL` | `trash.purgeInterval` | `15m` | Pause between purge passes; `0` disables the schedule (admins can still purge by hand) |
 
+### Storage tiers (`tiering`)
+
+Tuning of the background mover; tiers and policies are managed through the admin API ([storage tiers](../operations/storage-tiering.md#configuration)).
+
+| Environment variable | YAML key | Default | Meaning |
+|---|---|---|---|
+| `OPENARTIFACT_TIERING_ENABLED` | `tiering.enabled` | `true` | Run the mover. Off: nothing moves, reads still work from every tier |
+| `OPENARTIFACT_TIERING_INTERVAL` | `tiering.interval` | `5m` | Pause between passes; `0` disables the schedule |
+| `OPENARTIFACT_TIERING_BATCH` | `tiering.batch` | `200` | Most blobs moved per pass (at least 1) |
+| `OPENARTIFACT_TIERING_CONCURRENCY` | `tiering.concurrency` | `2` | Blobs copied at once (at least 1) |
+| `OPENARTIFACT_TIERING_MAX_BYTES_PER_SECOND` | `tiering.maxBytesPerSecond` | `67108864` | Shared copy bandwidth cap; `0` unlimited |
+| `OPENARTIFACT_TIERING_VERIFY_READBACK` | `tiering.verifyReadback` | `true` | Re-hash each copy on the target tier before the placement flips |
+| `OPENARTIFACT_TIERING_ACCESS_FLUSH_INTERVAL` | `tiering.accessFlushInterval` | `30s` | How often recorded downloads are written to the database |
+| `OPENARTIFACT_TIERING_REFRESH_INTERVAL` | `tiering.refreshInterval` | `30s` | How often each replica reloads the tier list |
+
 ### Storage (`storage`)
 
 Backends: `filesystem`, `s3`, `gcs`, `azure`, `garage`, `seaweedfs`, `oci`. `garage` and `seaweedfs` reuse the S3 client with path-style addressing forced on. Details: [storage](../operations/storage.md).

@@ -4,13 +4,14 @@
 
 // Flat English string catalog. `t(key)` is typed against the catalog so a
 // missing key is a compile error; use `tDynamic` for runtime-built keys.
-// Per-area keys live in en.repos.ts / en.admin.ts / en.auth.ts / en.projects.ts. The intent is to decouple components from literal
+// Per-area keys live in en.repos.ts / en.admin.ts / en.auth.ts / en.projects.ts / en.tiering.ts. The intent is to decouple components from literal
 // strings so that adding a second locale later is mechanical.
 
 import { enRepos } from './en.repos'
 import { enAdmin } from './en.admin'
 import { enAuth } from './en.auth'
 import { enProjects } from './en.projects'
+import { enTiering } from './en.tiering'
 
 const base = {
   // App / shell
@@ -61,6 +62,7 @@ const base = {
   'nav.audit': 'Audit Log',
   'nav.trash': 'Trash',
   'nav.storage': 'Storage Backends',
+  'nav.storageTiers': 'Storage Tiers',
   'nav.backup': 'Backup & Restore',
   'nav.webhooks': 'Webhooks',
   'nav.security': 'Security',
@@ -418,7 +420,7 @@ const base = {
   'settings.tokens.expires': 'Expires',
 } as const
 
-const catalog = { ...base, ...enRepos, ...enAdmin, ...enAuth, ...enProjects } satisfies Record<string, string>
+const catalog = { ...base, ...enRepos, ...enAdmin, ...enAuth, ...enProjects, ...enTiering } satisfies Record<string, string>
 
 export type TranslationKey = keyof typeof catalog
 

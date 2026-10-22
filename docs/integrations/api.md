@@ -161,6 +161,7 @@ Prefix `/api/v1`. Most groups are admin-only (the gate above); see the spec for 
 | `/webhooks` | global webhooks, test, deliveries |
 | `/bundles`, `/pipelines` | [release bundles](../repositories/release-bundles.md) and promotion pipelines |
 | `/admin/{tokens,storage,backup,restore,audit,gpg,sso-providers,ai,license,system}` | token administration, [storage](../operations/storage.md), [backup](../operations/backup.md), audit log, GPG keys (`/admin/gpg/keys` is a stub: empty list, 501 on write; see [signing](../security/signing.md)), SSO providers, AI settings, global license policies, detailed system info |
+| `/admin/tiering/{tiers,policies,dry-run,run,status}` | [storage tiers](../operations/storage-tiering.md#admin-api): tiers with placement stats, lifecycle policies (CRUD), dry run (`POST /admin/tiering/dry-run`: counts, bytes and a sample of what would move, no changes), mover trigger and status |
 | `/system/info` | version and build information |
 
 `/admin/pprof/` is also registered when `server.pprofEnabled` is set (admin only; for diagnostics, see [performance](../operations/performance.md)).

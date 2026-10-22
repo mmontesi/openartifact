@@ -106,7 +106,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
           <SidebarLink to="/admin/tokens" :icon="TicketIcon" :label="t('nav.tokens')" :collapsed="collapsed" />
           <SidebarLink to="/admin/audit" :icon="ClipboardDocumentListIcon" :label="t('nav.audit')" :collapsed="collapsed" />
           <SidebarLink to="/admin/trash" :icon="TrashIcon" :label="t('nav.trash')" :collapsed="collapsed" />
-          <SidebarLink to="/admin/storage" :icon="ServerStackIcon" :label="t('nav.storage')" :collapsed="collapsed" />
+          <SidebarLink to="/admin/storage" exact :icon="ServerStackIcon" :label="t('nav.storage')" :collapsed="collapsed" />
+          <SidebarLink to="/admin/storage/tiers" :icon="Square3Stack3DIcon" :label="t('nav.storageTiers')" :collapsed="collapsed" />
           <SidebarLink to="/admin/backup" :icon="ArchiveBoxIcon" :label="t('nav.backup')" :collapsed="collapsed" />
           <SidebarLink to="/admin/webhooks" :icon="BellAlertIcon" :label="t('nav.webhooks')" :collapsed="collapsed" />
           <SidebarLink to="/admin/system" :icon="Cog6ToothIcon" :label="t('nav.system')" :collapsed="collapsed" />
@@ -176,6 +177,7 @@ import {
   TicketIcon,
   ClipboardDocumentListIcon,
   ServerStackIcon,
+  Square3Stack3DIcon,
   ArchiveBoxIcon,
   Cog6ToothIcon,
   UserCircleIcon,

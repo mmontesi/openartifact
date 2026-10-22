@@ -187,6 +187,12 @@ const routes: RouteRecordRaw[] = [
     meta: { crumbs: adminTrail('nav.storage'), requiresAuth: true, requiresAdmin: true },
   },
   {
+    path: '/admin/storage/tiers',
+    name: 'admin-storage-tiers',
+    component: () => import('../pages/admin/StorageTiersPage.vue'),
+    meta: { crumbs: adminTrail('nav.storageTiers'), requiresAuth: true, requiresAdmin: true },
+  },
+  {
     path: '/admin/projects',
     name: 'admin-projects',
     component: () => import('../pages/admin/ProjectsPage.vue'),

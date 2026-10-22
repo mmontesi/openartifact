@@ -22,6 +22,15 @@ type Registry struct {
 	MetadataRegenerationDurationSeconds *prometheus.HistogramVec
 	AuditDroppedTotal                   prometheus.Counter
 	TrashPurgedTotal                    *prometheus.CounterVec
+
+	// Storage tiering. The tier/from/to labels are tier names: a handful of
+	// admin-defined values, never blob or repository identifiers.
+	TierBlobs           *prometheus.GaugeVec
+	TierBytes           *prometheus.GaugeVec
+	TierReadsTotal      *prometheus.CounterVec
+	TierMovesTotal      *prometheus.CounterVec
+	TierMovedBytesTotal *prometheus.CounterVec
+	TierMovesPending    prometheus.Gauge
 }
 
 // NewRegistry creates all metrics, registers them on the default Prometheus
@@ -74,6 +83,36 @@ func NewRegistry() *Registry {
 			Name: "openartifact_trash_purged_total",
 			Help: "Total number of trashed items permanently removed by the retention purge, by kind.",
 		}, []string{"kind"}),
+
+		TierBlobs: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "openartifact_storage_tier_blobs",
+			Help: "Blobs placed on each storage tier, refreshed by the tier mover.",
+		}, []string{"tier"}),
+
+		TierBytes: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "openartifact_storage_tier_bytes",
+			Help: "Bytes of blobs placed on each storage tier, refreshed by the tier mover.",
+		}, []string{"tier"}),
+
+		TierReadsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "openartifact_storage_tier_reads_total",
+			Help: "Blob reads served from each storage tier.",
+		}, []string{"tier"}),
+
+		TierMovesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "openartifact_storage_tier_moves_total",
+			Help: "Blob moves between storage tiers by outcome (moved, failed, skipped).",
+		}, []string{"from", "to", "result"}),
+
+		TierMovedBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "openartifact_storage_tier_moved_bytes_total",
+			Help: "Bytes of blobs moved between storage tiers.",
+		}, []string{"from", "to"}),
+
+		TierMovesPending: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "openartifact_storage_tier_moves_pending",
+			Help: "Tier moves left in the journal (interrupted or failed, awaiting recovery).",
+		}),
 	}
 
 	prometheus.MustRegister(
@@ -86,6 +125,12 @@ func NewRegistry() *Registry {
 		r.MetadataRegenerationDurationSeconds,
 		r.AuditDroppedTotal,
 		r.TrashPurgedTotal,
+		r.TierBlobs,
+		r.TierBytes,
+		r.TierReadsTotal,
+		r.TierMovesTotal,
+		r.TierMovedBytesTotal,
+		r.TierMovesPending,
 	)
 
 	return r

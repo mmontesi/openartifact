@@ -76,6 +76,11 @@ scrape_configs:
 | `openartifact_metadata_regeneration_duration_seconds` | histogram | `format` | same buckets as the request histogram |
 | `openartifact_audit_dropped_total` | counter | | audit events lost to backpressure or after shutdown |
 | `openartifact_trash_purged_total` | counter | `kind` | trashed items (and repositories, `kind="repository"`) permanently removed by the retention purge; `kind` is the trash kind, e.g. `maven_artifact`, `docker_manifest` |
+| `openartifact_storage_tier_blobs`, `openartifact_storage_tier_bytes` | gauge | `tier` | blobs and bytes placed on each [storage tier](storage-tiering.md#metrics), refreshed after every mover pass |
+| `openartifact_storage_tier_reads_total` | counter | `tier` | blob reads served by each tier |
+| `openartifact_storage_tier_moves_total` | counter | `from`, `to`, `result` | tier moves; `result` is `moved`, `skipped` or `failed` |
+| `openartifact_storage_tier_moved_bytes_total` | counter | `from`, `to` | bytes moved between tiers |
+| `openartifact_storage_tier_moves_pending` | gauge | | interrupted or failing moves awaiting recovery; should return to 0 |
 
 Useful queries:
 

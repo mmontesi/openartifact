@@ -801,3 +801,66 @@ func TestLoad_MaxBodyBytes(t *testing.T) {
 		t.Errorf("env MaxBodyBytes = %d, want 1 MiB", cfg.Server.MaxBodyBytes)
 	}
 }
+
+func TestLoad_TieringDefaultsAndEnv(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	d := cfg.Tiering
+	if !d.Enabled || !d.VerifyReadback || d.Interval != 5*time.Minute || d.Batch != 200 || d.Concurrency != 2 || d.MaxBytesPerSecond != 64<<20 {
+		t.Errorf("unexpected tiering defaults: %+v", d)
+	}
+
+	t.Setenv("OPENARTIFACT_TIERING_ENABLED", "false")
+	t.Setenv("OPENARTIFACT_TIERING_INTERVAL", "90s")
+	t.Setenv("OPENARTIFACT_TIERING_BATCH", "5")
+	t.Setenv("OPENARTIFACT_TIERING_CONCURRENCY", "7")
+	t.Setenv("OPENARTIFACT_TIERING_MAX_BYTES_PER_SECOND", "1024")
+	t.Setenv("OPENARTIFACT_TIERING_VERIFY_READBACK", "false")
+	t.Setenv("OPENARTIFACT_TIERING_ACCESS_FLUSH_INTERVAL", "2m")
+	t.Setenv("OPENARTIFACT_TIERING_REFRESH_INTERVAL", "3m")
+
+	cfg, err = Load("")
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	want := TieringConfig{
+		Enabled: false, Interval: 90 * time.Second, Batch: 5, Concurrency: 7, MaxBytesPerSecond: 1024,
+		VerifyReadback: false, AccessFlushInterval: 2 * time.Minute, RefreshInterval: 3 * time.Minute,
+	}
+	if cfg.Tiering != want {
+		t.Errorf("tiering = %+v, want %+v", cfg.Tiering, want)
+	}
+}
+
+func TestValidate_Tiering(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(c *TieringConfig)
+		ok     bool
+	}{
+		{"defaults", func(*TieringConfig) {}, true},
+		{"unlimited bandwidth", func(c *TieringConfig) { c.MaxBytesPerSecond = 0 }, true},
+		{"zero batch", func(c *TieringConfig) { c.Batch = 0 }, false},
+		{"zero concurrency", func(c *TieringConfig) { c.Concurrency = 0 }, false},
+		{"negative bandwidth", func(c *TieringConfig) { c.MaxBytesPerSecond = -1 }, false},
+		{"negative flush interval", func(c *TieringConfig) { c.AccessFlushInterval = -time.Second }, false},
+		{"negative refresh interval", func(c *TieringConfig) { c.RefreshInterval = -time.Second }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load("")
+			if err != nil {
+				t.Fatalf("Load() failed: %v", err)
+			}
+
+			tc.mutate(&cfg.Tiering)
+
+			if err := cfg.validateTiering(); (err == nil) != tc.ok {
+				t.Errorf("validateTiering() = %v, want ok=%v", err, tc.ok)
+			}
+		})
+	}
+}

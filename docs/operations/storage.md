@@ -21,6 +21,8 @@ Supported backends: `filesystem` (default), `s3`, `gcs`, `azure`, `garage`, `sea
 | `azure` | Azure Blob Storage REST API with the account's Shared Key |
 | `oci` | An OCI registry (Distribution spec v1.1) used as a blob store |
 
+To keep cold blobs on cheaper storage, register extra backends and map them to named tiers with age, idle-time or size policies: [storage tiers](storage-tiering.md). New uploads always land on the backend configured here.
+
 An unknown value stops the server at startup (`unknown storage type`). `STORAGE_TYPE` is accepted as a fallback for `STORAGE_BACKEND`.
 
 ## Settings

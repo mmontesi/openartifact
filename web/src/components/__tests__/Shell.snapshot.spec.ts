@@ -28,6 +28,7 @@ function makeRouter() {
       { path: '/admin/tokens', name: 'admin-tokens', component: { template: '<div />' } },
       { path: '/admin/audit', name: 'admin-audit', component: { template: '<div />' } },
       { path: '/admin/storage', name: 'admin-storage', component: { template: '<div />' } },
+      { path: '/admin/storage/tiers', name: 'admin-storage-tiers', component: { template: '<div />' } },
       { path: '/admin/system', name: 'admin-system', component: { template: '<div />' } },
       { path: '/admin/projects', name: 'admin-projects', component: { template: '<div />' } },
       { path: '/admin/backup', name: 'admin-backup', component: { template: '<div />' } },
