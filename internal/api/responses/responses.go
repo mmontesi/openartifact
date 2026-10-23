@@ -659,3 +659,101 @@ type SecretScanExportResponse struct {
 	ScannedAt    *string               `json:"scanned_at"`
 	ScanError    *string               `json:"scan_error"`
 }
+
+// AttestationKeyResponse describes the key SBOM and VEX attestations are signed with.
+type AttestationKeyResponse struct {
+	KeyID        string `json:"key_id"`
+	Algorithm    string `json:"algorithm"`
+	Source       string `json:"source"`
+	PublicKeyPEM string `json:"public_key_pem"`
+	PublicKeyURL string `json:"public_key_url"`
+}
+
+// DependencyTrackSettingsResponse is the global Dependency-Track configuration.
+// The API key is write-only; APIKeySet tells whether one is stored.
+type DependencyTrackSettingsResponse struct {
+	Enabled        bool   `json:"enabled"`
+	BaseURL        string `json:"base_url"`
+	APIKeySet      bool   `json:"api_key_set"`
+	ProjectName    string `json:"project_name"`
+	ProjectVersion string `json:"project_version"`
+	AutoPush       bool   `json:"auto_push"`
+	PushVEX        bool   `json:"push_vex"`
+}
+
+// DependencyTrackOverrideResponse is a repository's override of the global
+// configuration: empty strings and null booleans inherit.
+type DependencyTrackOverrideResponse struct {
+	Enabled        bool   `json:"enabled"`
+	BaseURL        string `json:"base_url"`
+	APIKeySet      bool   `json:"api_key_set"`
+	ProjectName    string `json:"project_name"`
+	ProjectVersion string `json:"project_version"`
+	AutoPush       *bool  `json:"auto_push"`
+	PushVEX        *bool  `json:"push_vex"`
+}
+
+// DependencyTrackEffectiveResponse is the configuration that applies to a repository.
+type DependencyTrackEffectiveResponse struct {
+	Enabled        bool   `json:"enabled"`
+	Ready          bool   `json:"ready"`
+	Source         string `json:"source"`
+	BaseURL        string `json:"base_url"`
+	APIKeySet      bool   `json:"api_key_set"`
+	ProjectName    string `json:"project_name"`
+	ProjectVersion string `json:"project_version"`
+	AutoPush       bool   `json:"auto_push"`
+	PushVEX        bool   `json:"push_vex"`
+}
+
+// DependencyTrackRepositoryResponse is a repository's override and the effective configuration.
+type DependencyTrackRepositoryResponse struct {
+	Override  *DependencyTrackOverrideResponse `json:"override"`
+	Effective DependencyTrackEffectiveResponse `json:"effective"`
+}
+
+// DependencyTrackPushResponse is the last push of one artifact.
+type DependencyTrackPushResponse struct {
+	ArtifactID     string  `json:"artifact_id"`
+	State          string  `json:"state"`
+	Detail         string  `json:"detail"`
+	ProjectUUID    string  `json:"project_uuid"`
+	ProjectName    string  `json:"project_name"`
+	ProjectVersion string  `json:"project_version"`
+	Components     int     `json:"components"`
+	VEXStatements  int     `json:"vex_statements"`
+	VEXApplied     int     `json:"vex_applied"`
+	BOMPushedAt    *string `json:"bom_pushed_at"`
+	VEXPushedAt    *string `json:"vex_pushed_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+// DependencyTrackTestResponse is the outcome of a connection test.
+type DependencyTrackTestResponse struct {
+	Version            string   `json:"version"`
+	Permissions        []string `json:"permissions"`
+	MissingPermissions []string `json:"missing_permissions"`
+}
+
+// AttestationAttachSettingsResponse is a repository's referrer-attach switch.
+type AttestationAttachSettingsResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+// AttestationAttachResponse reports an attestation attached to a docker image
+// as an OCI referrer.
+type AttestationAttachResponse struct {
+	ArtifactID    string `json:"artifact_id"`
+	Kind          string `json:"kind"`
+	PredicateType string `json:"predicate_type"`
+	// Subject is the digest of the image manifest the attestation is attached to.
+	Subject string `json:"subject"`
+	// ArtifactType is the referrer's OCI artifactType.
+	ArtifactType string `json:"artifact_type"`
+	// ReferrerDigest is the digest of the referrer manifest.
+	ReferrerDigest string `json:"referrer_digest"`
+	// Created is false when an identical attestation was already attached.
+	Created bool `json:"created"`
+	// Replaced is the digest of the earlier attestation this one replaced.
+	Replaced string `json:"replaced,omitempty"`
+}
