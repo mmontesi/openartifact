@@ -5,8 +5,6 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -309,9 +307,7 @@ func Load(filePath string) (*Config, error) {
 	applyEnvOverrides(cfg)
 
 	// 4. Finalize config (handle special cases)
-	if err := finalizeConfig(cfg); err != nil {
-		return nil, err
-	}
+	finalizeConfig(cfg)
 
 	return cfg, nil
 }
@@ -635,7 +631,7 @@ func applyEnvOverrides(cfg *Config) {
 }
 
 // finalizeConfig handles special configuration cases.
-func finalizeConfig(cfg *Config) error {
+func finalizeConfig(cfg *Config) {
 	// Handle BASE_URL default
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "http://localhost:8080"
@@ -646,20 +642,6 @@ func finalizeConfig(cfg *Config) error {
 	// Server-relayed presigned uploads (filesystem and oci storage) point
 	// clients at this server.
 	cfg.Storage.PublicURL = cfg.BaseURL
-
-	// Handle HMAC key generation
-	if cfg.Auth.HMACKey == "" {
-		raw := make([]byte, 32)
-		if _, err := rand.Read(raw); err != nil {
-			return fmt.Errorf("generate ephemeral hmac key: %w", err)
-		}
-
-		cfg.Auth.HMACKey = hex.EncodeToString(raw)
-
-		fmt.Fprintln(os.Stderr, "WARN: AUTH_HMAC_KEY not set, generated ephemeral key — SAML RelayState will fail across server restarts")
-	}
-
-	return nil
 }
 
 // ValidateFile validates a config file without loading it into the application.
