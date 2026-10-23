@@ -1050,6 +1050,14 @@ export type LicenseScanResult = {
     artifact_id: string;
     licenses?: Array<string>;
     spdx_expressions?: Array<string>;
+    /**
+     * Entries of licenses that are not SPDX expressions: raw text read from the artifact ("BSD", "BSD License"), kept as written and flagged for review.
+     */
+    unresolved_licenses?: Array<string>;
+    /**
+     * `artifact`: the licenses include ones read from the stored package file. `client_declared`: they only come from what a client declared (license properties) because the file declares no license, or cannot be read and no blocking policy applies.
+     */
+    license_source?: 'artifact' | 'client_declared';
     scan_status: 'pending' | 'completed' | 'failed';
     scan_error: string | null;
     scanned_at: string | null;
@@ -1089,6 +1097,22 @@ export type LicensePolicyUnavailableError = {
 };
 
 /**
+ * Upload rejected (422): the package file's own metadata is oversized or ambiguous (a decompression bomb, or two candidate metadata files), so its licenses cannot be checked.
+ */
+export type LicenseMetadataUnsafeError = {
+    error: string;
+    code: 'LICENSE_METADATA_UNSAFE';
+};
+
+/**
+ * Upload rejected (422): the repository has an enabled license policy with action `block` and the package's license cannot be derived from the package file (a file type without readable metadata, a damaged archive), so only the client's own claims would decide the policy.
+ */
+export type LicenseMetadataUnreadableError = {
+    error: string;
+    code: 'LICENSE_METADATA_UNREADABLE';
+};
+
+/**
  * Result of POST .../license/scan: the recorded license scan plus the policy violations it triggered.
  */
 export type LicenseScanRunResult = {
@@ -1096,6 +1120,14 @@ export type LicenseScanRunResult = {
     repo_id: string;
     artifact_id: string;
     licenses?: Array<string>;
+    /**
+     * Entries of licenses that are not SPDX expressions: raw text read from the artifact ("BSD", "BSD License"), kept as written and flagged for review.
+     */
+    unresolved_licenses?: Array<string>;
+    /**
+     * `artifact`: the licenses include ones read from the stored package file. `client_declared`: they only come from what a client declared (license properties) because the file declares no license, or cannot be read and no blocking policy applies.
+     */
+    license_source?: 'artifact' | 'client_declared';
     scan_status: 'pending' | 'completed' | 'failed';
     scanned_at: string | null;
     created_at: string;
@@ -2235,6 +2267,10 @@ export type PostApiV1RepositoriesByNameLicenseScanErrors = {
      * Repository not found
      */
     404: unknown;
+    /**
+     * The artifact's metadata is too large or ambiguous to be read safely (`unsafe_artifact`), or its license cannot be read from its file while a blocking license policy applies (`unreadable_artifact`)
+     */
+    422: unknown;
 };
 
 export type PostApiV1RepositoriesByNameLicenseScanResponses = {

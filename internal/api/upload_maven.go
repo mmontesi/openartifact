@@ -25,6 +25,7 @@ import (
 	"github.com/openartifact/openartifact/internal/database"
 	"github.com/openartifact/openartifact/internal/database/models"
 	"github.com/openartifact/openartifact/internal/importmeta"
+	"github.com/openartifact/openartifact/internal/licensemeta"
 	"github.com/openartifact/openartifact/internal/licensepolicy"
 	"github.com/openartifact/openartifact/internal/metrics"
 	"github.com/openartifact/openartifact/internal/quota"
@@ -440,29 +441,36 @@ func (h *MavenUploadHandler) handlePut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(statusCode)
 }
 
+// parseUploadedPOM parses the spooled pom from its start; nil when it cannot be
+// read or parsed.
+func parseUploadedPOM(pomFile *os.File) *pkgmaven.POM {
+	if _, err := pomFile.Seek(0, io.SeekStart); err != nil {
+		return nil
+	}
+
+	pom, err := pkgmaven.ParsePOM(pomFile)
+	if err != nil {
+		return nil
+	}
+
+	return pom
+}
+
 // enforcePomLicenses applies the license policy to the licenses declared in
 // the uploaded .pom (the jar is stored before the pom, so its siblings are
 // already in the repository). It returns true when it wrote the rejection. On a
 // rejection the sibling files already stored for the same group, artifact and
 // version are quarantined best-effort, so the blocked version cannot be
-// downloaded through them. A pom that does not parse declares no license.
+// downloaded through them. A pom that cannot be read declares nothing the
+// policy can check: without a blocking policy it is admitted, with one it is
+// refused with 422 LICENSE_METADATA_UNREADABLE.
 func (h *MavenUploadHandler) enforcePomLicenses(w http.ResponseWriter, r *http.Request, pomFile *os.File, repoID, groupID, artifactID, version, artPath string) bool {
-	if _, err := pomFile.Seek(0, io.SeekStart); err != nil {
-		return false
+	pom := parseUploadedPOM(pomFile)
+	if pom == nil {
+		return licensepolicy.RefuseUnderivable(w, r, h.db, h.log, repoID)
 	}
 
-	pom, err := pkgmaven.ParsePOM(pomFile)
-	if err != nil || pom == nil {
-		return false
-	}
-
-	licenses := make([]string, 0, len(pom.Licenses))
-
-	for _, l := range pom.Licenses {
-		if name := strings.TrimSpace(l.Name); name != "" {
-			licenses = append(licenses, name)
-		}
-	}
+	licenses := licensemeta.ParsePOM(pom)
 
 	if !licensepolicy.Enforce(w, r, h.db, h.log, repoID, licenses...) {
 		return false
@@ -481,7 +489,7 @@ func (h *MavenUploadHandler) enforcePomLicenses(w http.ResponseWriter, r *http.R
 			continue
 		}
 
-		if _, _, recErr := licensepolicy.Record(ctx, h.db, h.log, repoID, s.RepoPath, licenses); recErr != nil {
+		if _, _, recErr := licensepolicy.Record(ctx, h.db, h.log, repoID, s.RepoPath, licenses, models.LicenseSourceArtifact); recErr != nil {
 			h.log.Warnw("maven license block: failed to quarantine sibling", "path", s.RepoPath, "error", recErr)
 		}
 	}
