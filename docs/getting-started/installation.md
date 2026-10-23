@@ -19,6 +19,7 @@ OpenArtifact is one Go binary with the web UI embedded. It needs PostgreSQL (the
 ## Docker Compose
 
 ```sh
+docker login dhi.io                     # mandatory due to that hardened image: dhi.io/static:20250419-debian13, the community tier is ok
 cp docker/.env.example docker/.env      # set POSTGRES_PASSWORD
 make docker-up                          # build and start; stamps version, commit and build time
 ```
