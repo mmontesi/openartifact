@@ -6,11 +6,13 @@ package gpg
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
@@ -33,6 +35,12 @@ type Signer interface {
 	PublicKey() ([]byte, error)
 	// KeyFingerprint returns the key fingerprint
 	KeyFingerprint() string
+}
+
+// Resolver picks the signer for a repository. A nil Signer with a nil error
+// means the repository is not signed.
+type Resolver interface {
+	SignerForRepo(ctx context.Context, repoID string) (Signer, error)
 }
 
 // LocalSigner implements Signer using local GPG keys.
@@ -83,27 +91,9 @@ func NewLocalSignerFromFile(keyPath string, passphrase []byte) (*LocalSigner, er
 	return NewLocalSigner(file, passphrase)
 }
 
-// GenerateKey generates a new PGP key pair.
+// GenerateKey generates a new RSA-4096 PGP key pair.
 func GenerateKey(name, comment, email string) (*openpgp.Entity, error) {
-	config := &packet.Config{
-		DefaultHash:   crypto.SHA256,
-		DefaultCipher: packet.CipherAES256,
-		RSABits:       4096,
-	}
-
-	entity, err := openpgp.NewEntity(name, comment, email, config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate key: %w", err)
-	}
-
-	for _, id := range entity.Identities {
-		err := id.SelfSignature.SignUserId(id.UserId.Id, entity.PrimaryKey, entity.PrivateKey, config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to self-sign identity: %w", err)
-		}
-	}
-
-	return entity, nil
+	return GenerateEntity(name, comment, email, AlgorithmRSA4096)
 }
 
 // CleartextSign implements Signer.CleartextSign.
@@ -173,6 +163,22 @@ func (s *LocalSigner) KeyFingerprint() string {
 	}
 
 	return fmt.Sprintf("%X", s.entity.PrimaryKey.Fingerprint)
+}
+
+// SigningKey returns the unlocked private key that makes signatures: the
+// signing subkey when the entity has one, the primary key otherwise. It lets
+// signers of other formats (RPM package signatures) use the same key.
+func (s *LocalSigner) SigningKey() (*packet.PrivateKey, error) {
+	if s.entity == nil {
+		return nil, ErrNoKeysFound
+	}
+
+	key, ok := s.entity.SigningKey(time.Now())
+	if !ok || key.PrivateKey == nil || key.PrivateKey.Encrypted {
+		return nil, ErrKeyCannotSign
+	}
+
+	return key.PrivateKey, nil
 }
 
 // KeyID returns the short key ID (last 16 hex characters).

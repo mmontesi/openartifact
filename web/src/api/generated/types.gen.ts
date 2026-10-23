@@ -185,6 +185,10 @@ export type Repository = {
      * Group repositories only. false (default): for a package name held by a readable hosted member, proxy members' versions of that name are hidden (hosted members win, dependency-confusion protection). true: merge proxy versions with the hosted ones. Only administrators can set it.
      */
     merge_proxy_versions?: boolean;
+    /**
+     * Hosted rpm repositories only (400 otherwise when true). When true, uploaded RPMs are signed with the active GPG key; existing packages are not re-signed.
+     */
+    sign_packages?: boolean;
 };
 
 export type RepositoryMember = {
@@ -521,12 +525,38 @@ export type AuditEntry = {
     };
 };
 
+/**
+ * A signing key. Private key material is never part of the API.
+ */
 export type GpgKey = {
+    /**
+     * UUID, or `config` for the read-only key configured through gpg.keyPath
+     */
+    id?: string;
+    name?: string;
     fingerprint?: string;
-    uid?: string;
-    created_at?: string;
-    expires_at?: string;
-    is_default?: boolean;
+    /**
+     * Long key id (last 16 hex digits of the fingerprint)
+     */
+    key_id?: string;
+    /**
+     * ed25519, rsa2048, rsa4096, ...
+     */
+    algorithm?: string;
+    user_id?: string;
+    source?: 'imported' | 'generated' | 'auto' | 'config';
+    read_only?: boolean;
+    /**
+     * Signs every deb/rpm repository that has no key of its own
+     */
+    active_global?: boolean;
+    /**
+     * Repositories this key is assigned to
+     */
+    repositories?: Array<string>;
+    created_by?: string;
+    created_at?: string | null;
+    expires_at?: string | null;
 };
 
 export type SsoProvider = {
@@ -1720,6 +1750,10 @@ export type PostApiV1RepositoriesData = {
          * Group repositories only, administrators only (403 otherwise). Default false: hosted members win a package name and proxy versions of the same name are hidden. true merges proxy versions into the group.
          */
         merge_proxy_versions?: boolean;
+        /**
+         * Hosted rpm repositories only (400 otherwise when true). When true, uploaded RPMs are signed with the active GPG key; existing packages are not re-signed.
+         */
+        sign_packages?: boolean;
     };
     path?: never;
     query?: never;
@@ -4975,6 +5009,10 @@ export type GetApiV1AdminGpgKeysResponses = {
      */
     200: {
         keys?: Array<GpgKey>;
+        /**
+         * False when OPENARTIFACT_SECRET_KEY is not set: keys cannot be imported or generated because private keys are only stored encrypted.
+         */
+        can_store_keys?: boolean;
     };
 };
 
@@ -4982,8 +5020,22 @@ export type GetApiV1AdminGpgKeysResponse = GetApiV1AdminGpgKeysResponses[keyof G
 
 export type PostApiV1AdminGpgKeysData = {
     body: {
-        armored: string;
+        /**
+         * Unique display name; defaults to key-<keyid>
+         */
+        name?: string;
+        /**
+         * ASCII-armored private key
+         */
+        private_key: string;
+        /**
+         * Passphrase of a protected key
+         */
         passphrase?: string;
+        /**
+         * Make it the global active key; default: only when nothing signs globally yet
+         */
+        activate?: boolean;
     };
     path?: never;
     query?: never;
@@ -4992,9 +5044,17 @@ export type PostApiV1AdminGpgKeysData = {
 
 export type PostApiV1AdminGpgKeysErrors = {
     /**
+     * Invalid, protected (code passphrase_required), revoked or expired key
+     */
+    400: unknown;
+    /**
      * Admin access required
      */
     403: unknown;
+    /**
+     * Name or fingerprint already exists, or OPENARTIFACT_SECRET_KEY is not set (code secret_key_required)
+     */
+    409: unknown;
 };
 
 export type PostApiV1AdminGpgKeysResponses = {
@@ -5007,11 +5067,19 @@ export type PostApiV1AdminGpgKeysResponses = {
 export type PostApiV1AdminGpgKeysResponse = PostApiV1AdminGpgKeysResponses[keyof PostApiV1AdminGpgKeysResponses];
 
 export type PostApiV1AdminGpgKeysGenerateData = {
-    body: {
-        name: string;
-        email: string;
+    body?: {
+        name?: string;
+        algorithm?: 'ed25519' | 'rsa4096';
+        /**
+         * User id name; default `OpenArtifact repository signing key`
+         */
+        user_name?: string;
+        email?: string;
         comment?: string;
-        passphrase?: string;
+        /**
+         * Make it the global active key; default: only when nothing signs globally yet
+         */
+        activate?: boolean;
     };
     path?: never;
     query?: never;
@@ -5020,9 +5088,17 @@ export type PostApiV1AdminGpgKeysGenerateData = {
 
 export type PostApiV1AdminGpgKeysGenerateErrors = {
     /**
+     * Invalid input
+     */
+    400: unknown;
+    /**
      * Admin access required
      */
     403: unknown;
+    /**
+     * Name already exists, or OPENARTIFACT_SECRET_KEY is not set (code secret_key_required)
+     */
+    409: unknown;
 };
 
 export type PostApiV1AdminGpgKeysGenerateResponses = {
@@ -5037,17 +5113,30 @@ export type PostApiV1AdminGpgKeysGenerateResponse = PostApiV1AdminGpgKeysGenerat
 export type DeleteApiV1AdminGpgKeysByIdData = {
     body?: never;
     path: {
+        /**
+         * Key id (UUID) or `config` for the read-only file/env key
+         */
         id: string;
     };
-    query?: never;
+    query?: {
+        force?: boolean;
+    };
     url: '/api/v1/admin/gpg/keys/{id}';
 };
 
 export type DeleteApiV1AdminGpgKeysByIdErrors = {
     /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
      * GPG key not found
      */
     404: unknown;
+    /**
+     * Key is active (key_in_use) or read-only
+     */
+    409: unknown;
 };
 
 export type DeleteApiV1AdminGpgKeysByIdResponses = {
@@ -5058,6 +5147,121 @@ export type DeleteApiV1AdminGpgKeysByIdResponses = {
 };
 
 export type DeleteApiV1AdminGpgKeysByIdResponse = DeleteApiV1AdminGpgKeysByIdResponses[keyof DeleteApiV1AdminGpgKeysByIdResponses];
+
+export type DeleteApiV1AdminGpgKeysByIdActivateData = {
+    body?: never;
+    path: {
+        /**
+         * Key id (UUID) or `config` for the read-only file/env key
+         */
+        id: string;
+    };
+    query?: {
+        repository?: string;
+    };
+    url: '/api/v1/admin/gpg/keys/{id}/activate';
+};
+
+export type DeleteApiV1AdminGpgKeysByIdActivateErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Key or repository not found
+     */
+    404: unknown;
+    /**
+     * The key was not active there, or it is the read-only config key
+     */
+    409: unknown;
+};
+
+export type DeleteApiV1AdminGpgKeysByIdActivateResponses = {
+    /**
+     * Deactivated
+     */
+    204: void;
+};
+
+export type DeleteApiV1AdminGpgKeysByIdActivateResponse = DeleteApiV1AdminGpgKeysByIdActivateResponses[keyof DeleteApiV1AdminGpgKeysByIdActivateResponses];
+
+export type PutApiV1AdminGpgKeysByIdActivateData = {
+    body?: {
+        /**
+         * Repository name; omit for the global scope
+         */
+        repository?: string;
+    };
+    path: {
+        /**
+         * Key id (UUID) or `config` for the read-only file/env key
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/gpg/keys/{id}/activate';
+};
+
+export type PutApiV1AdminGpgKeysByIdActivateErrors = {
+    /**
+     * Repository is not a hosted deb or rpm repository
+     */
+    400: unknown;
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Key or repository not found
+     */
+    404: unknown;
+    /**
+     * Read-only config key
+     */
+    409: unknown;
+};
+
+export type PutApiV1AdminGpgKeysByIdActivateResponses = {
+    /**
+     * The key
+     */
+    200: GpgKey;
+};
+
+export type PutApiV1AdminGpgKeysByIdActivateResponse = PutApiV1AdminGpgKeysByIdActivateResponses[keyof PutApiV1AdminGpgKeysByIdActivateResponses];
+
+export type GetApiV1AdminGpgKeysByIdExportData = {
+    body?: never;
+    path: {
+        /**
+         * Key id (UUID) or `config` for the read-only file/env key
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/gpg/keys/{id}/export';
+};
+
+export type GetApiV1AdminGpgKeysByIdExportErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * GPG key not found
+     */
+    404: unknown;
+};
+
+export type GetApiV1AdminGpgKeysByIdExportResponses = {
+    /**
+     * Armored public key
+     */
+    200: string;
+};
+
+export type GetApiV1AdminGpgKeysByIdExportResponse = GetApiV1AdminGpgKeysByIdExportResponses[keyof GetApiV1AdminGpgKeysByIdExportResponses];
 
 export type GetApiV1AdminSsoProvidersData = {
     body?: never;
@@ -5428,6 +5632,10 @@ export type PostApiV1ProjectsByProjectRepositoriesData = {
          * Group repositories only, administrators only (403 otherwise). Default false: hosted members win a package name and proxy versions of the same name are hidden. true merges proxy versions into the group.
          */
         merge_proxy_versions?: boolean;
+        /**
+         * Hosted rpm repositories only (400 otherwise when true). When true, uploaded RPMs are signed with the active GPG key; existing packages are not re-signed.
+         */
+        sign_packages?: boolean;
     };
     path: {
         project: string;
@@ -6439,6 +6647,10 @@ export type PatchApiV1RepositoryByNameData = {
          * Group repositories only, administrators only (403 otherwise). Absent leaves it unchanged.
          */
         merge_proxy_versions?: boolean;
+        /**
+         * Hosted rpm repositories only (400 otherwise when true). When true, uploaded RPMs are signed with the active GPG key; existing packages are not re-signed.
+         */
+        sign_packages?: boolean;
     };
     path: {
         name: string;
@@ -6827,6 +7039,68 @@ export type PostApiV1BundlesByNameByVersionSealResponses = {
      */
     200: unknown;
 };
+
+export type GetApiV1BundlesByNameByVersionManifestData = {
+    body?: never;
+    path: {
+        name: string;
+        version: string;
+    };
+    query?: never;
+    url: '/api/v1/bundles/{name}/{version}/manifest';
+};
+
+export type GetApiV1BundlesByNameByVersionManifestErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Bundle not found
+     */
+    404: unknown;
+};
+
+export type GetApiV1BundlesByNameByVersionManifestResponses = {
+    /**
+     * Manifest
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type GetApiV1BundlesByNameByVersionManifestResponse = GetApiV1BundlesByNameByVersionManifestResponses[keyof GetApiV1BundlesByNameByVersionManifestResponses];
+
+export type GetApiV1BundlesByNameByVersionManifestAscData = {
+    body?: never;
+    path: {
+        name: string;
+        version: string;
+    };
+    query?: never;
+    url: '/api/v1/bundles/{name}/{version}/manifest.asc';
+};
+
+export type GetApiV1BundlesByNameByVersionManifestAscErrors = {
+    /**
+     * Admin access required
+     */
+    403: unknown;
+    /**
+     * Bundle not found or not signed
+     */
+    404: unknown;
+};
+
+export type GetApiV1BundlesByNameByVersionManifestAscResponses = {
+    /**
+     * Armored signature
+     */
+    200: string;
+};
+
+export type GetApiV1BundlesByNameByVersionManifestAscResponse = GetApiV1BundlesByNameByVersionManifestAscResponses[keyof GetApiV1BundlesByNameByVersionManifestAscResponses];
 
 export type PostApiV1BundlesByNameByVersionPromoteData = {
     body: {

@@ -473,6 +473,31 @@ type GomodModule struct {
 	DeletedBy    *string    `db:"deleted_by" json:"deleted_by"`
 }
 
+// GPG signing keys managed through the admin API. private_key_enc is sealed by internal/crypto and never returned.
+type GpgKey struct {
+	ID             string     `db:"id" json:"id"`
+	Name           string     `db:"name" json:"name"`
+	Fingerprint    string     `db:"fingerprint" json:"fingerprint"`
+	KeyID          string     `db:"key_id" json:"key_id"`
+	Algorithm      string     `db:"algorithm" json:"algorithm"`
+	UserID         string     `db:"user_id" json:"user_id"`
+	PublicKey      string     `db:"public_key" json:"public_key"`
+	PrivateKeyEnc  string     `db:"private_key_enc" json:"private_key_enc"`
+	IsGlobalActive bool       `db:"is_global_active" json:"is_global_active"`
+	Source         string     `db:"source" json:"source"`
+	CreatedBy      string     `db:"created_by" json:"created_by"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	ExpiresAt      *time.Time `db:"expires_at" json:"expires_at"`
+}
+
+// Per-repository signing key override; wins over the global active key.
+type GpgKeyRepository struct {
+	RepositoryID string    `db:"repository_id" json:"repository_id"`
+	GpgKeyID     string    `db:"gpg_key_id" json:"gpg_key_id"`
+	AssignedBy   string    `db:"assigned_by" json:"assigned_by"`
+	AssignedAt   time.Time `db:"assigned_at" json:"assigned_at"`
+}
+
 // Helm chart packages
 type HelmChart struct {
 	ID           string     `db:"id" json:"id"`
@@ -891,6 +916,8 @@ type Repository struct {
 	ImmutableReleases bool `db:"immutable_releases" json:"immutable_releases"`
 	// Groups only. false (default): when a hosted member holds a package name, proxy members' versions and files of that name are hidden. true: versions of all members are merged.
 	MergeProxyVersions bool `db:"merge_proxy_versions" json:"merge_proxy_versions"`
+	// Hosted rpm repositories only: sign uploaded RPMs with the active GPG key.
+	SignPackages bool `db:"sign_packages" json:"sign_packages"`
 }
 
 type RepositoryGroupMember struct {
