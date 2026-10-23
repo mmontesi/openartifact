@@ -12,7 +12,7 @@ Scans are **API-driven and manual**: vulnerability, secret and SBOM scans never 
 
 | Scan | Input | Source of data |
 |---|---|---|
-| [Vulnerabilities](#vulnerability-scans) | package name, version, ecosystem | OSV API, or the `trivy` / `grype` binary |
+| [Vulnerabilities](#vulnerability-scans) | package name, version, ecosystem | OSV API, or the `trivy` / `grype` binary ([installing them](#installing-trivy-and-grype)) |
 | [Secrets](#secret-scans) | text and/or metadata JSON you send | built-in regex rules |
 | [Licenses](#license-scans-and-policies) | `artifact_id` | the artifact's stored [properties](../repositories/properties.md) |
 | [SBOM](#sbom) | `artifact_id`, format | `artifact_id` plus the stored `dependencies` property |
@@ -31,14 +31,33 @@ curl -sS -H 'Authorization: Bearer <TOKEN>' 'HOST/api/v1/repositories/REPO/vuln/
 | Endpoint | |
 |---|---|
 | `POST …/vuln/scan` | body `artifact_id`, `package_name`, `package_version`, `ecosystem` (all required), `scanner` (`osv` default, `trivy`, `grype`) and/or `scanners` (a list of those names, to run several at once); an unknown name is `400 validation_failed` |
-| `GET …/vuln/scans[?vulnerable=true]` | list results |
+| `GET …/vuln/scanners` | which scanners can run now and, if not, why ([readiness](#checking-scanner-readiness)) |
+| `GET …/vuln/scans[?vulnerable=true]` | list the results of one repository |
+| `GET /api/v1/vuln/scans` | the [overview](#the-overview-across-repositories): scans of all repositories, worst first |
+| `GET /api/v1/vuln/scans/summary` | counts for the overview's cards |
 | `GET/DELETE …/vuln/scans/{id}` | read / delete one result |
 | `POST …/vuln/scans/{id}/quarantine` | body `{"quarantined":true\|false}` |
 
 - `POST` returns at once with `scan_status: "scanning"`; the scan runs in the background (120 s limit). Poll `GET …/vuln/scans/{id}` until the status is `completed`, `partial` or `failed`. At most 4 scans run at a time per server; further requests get 429 `too_many_scans` with `Retry-After: 10`.
 - A result carries `vulnerabilities` (id, summary, severity, CVSS, fixed-in version, references, published date), the counts `vuln_count`, `critical_count`, `high_count`, `medium_count`, `low_count`, the `scanner` that ran (several are stored sorted and comma-joined, for example `osv,trivy`) and `failed_scanners`.
-- `ecosystem` uses these names: `npm`, `pypi`, `maven`, `cargo`, `go`, `rubygems`, `nuget`, `deb`, `rpm`, `helm` (OSV); the other backends support a subset: Trivy `npm`, `pypi`, `maven`, `cargo`, `go`, `rubygems`, `nuget`; Grype `npm`, `pypi`, `maven`, `cargo`, `rubygems`, `nuget`, `deb`, `rpm`, `go`.
-- `osv` needs outbound HTTPS to `api.osv.dev`. `trivy` and `grype` run the CLI found on the server's `PATH`; the release image is shell-less and does not contain them; build a derived image that copies the static binaries in.
+- `ecosystem` uses these names: `npm`, `pypi`, `maven`, `cargo`, `go`, `rubygems`, `nuget`, `deb`, `rpm`, `helm` (OSV); the other backends support a subset: Trivy `npm`, `pypi`, `maven`, `cargo`, `go`, `rubygems`, `nuget`; Grype `npm`, `pypi`, `maven`, `cargo`, `rubygems`, `nuget`, `go`. Both scan the one package you name, not its dependencies: Trivy is given a generated lockfile that pins it (`package-lock.json`, `Cargo.lock`, `Gemfile.lock`, `packages.lock.json`, or `requirements.txt`, `go.mod`, `pom.xml`), Grype a Package URL (`pkg:npm/%40angular/core@8.0.0`). `deb` and `rpm` are not scannable with Grype (the result would depend on a distribution that a name and version do not carry) and are reported as `unsupported_ecosystem` rather than as clean.
+- `osv` needs outbound HTTPS to `api.osv.dev` and nothing else. `trivy` and `grype` are separate programs that the **release image does not contain**; see [Installing Trivy and Grype](#installing-trivy-and-grype). A scan that selects one that is not installed (or has no vulnerability database yet) is recorded as failed with an actionable `scan_error`.
+
+### The overview across repositories
+
+`GET /api/v1/vuln/scans` (administrators) lists the scans of every repository at once, which is what the **Security → Vulnerabilities** page opens with. Rows are summaries (the repository's name and format, the package, the counts, the status, the scanners, the quarantine flag) without the findings; read those with `GET …/vuln/scans/{id}`. The order is fixed, worst first: most critical findings, then high, medium and low, then newest, then id.
+
+| Query | Meaning |
+|---|---|
+| `repo` | only this repository (by name) |
+| `severity` | `critical`, `high`, `medium` or `low`: scans with at least one finding of that severity **or worse** |
+| `status` | `completed`, `partial`, `failed` or `scanning` (pending or running) |
+| `scanner` | `osv`, `trivy` or `grype`; a scan run by several matches each |
+| `quarantined` | `true` or `false` |
+| `limit` | page size, default 25, at most 100 |
+| `cursor` | the `next_cursor` of the previous page; send the same filters with it |
+
+The response is `{scans, has_more, next_cursor}`: keyset paging, so no row is counted and a deep page costs what the first costs. An unknown filter value or a malformed cursor is `400 validation_failed`. `GET /api/v1/vuln/scans/summary[?repo=NAME]` returns `{total, completed, partial, failed, scanning, quarantined, severity_at_least: {critical, high, medium, low}}` in one query; `severity_at_least.high` is the number of scans with a critical or a high finding, matching the `severity` filter. Failed and partial scans, critical findings, quarantined results and a repository filter are each served from an index (migration `041_scan_jobs_vuln_problems.no_tx.sql` adds the one for failed and partial scans, built concurrently).
 
 ### Scanner failures
 
@@ -50,11 +69,12 @@ A scanner that cannot produce a result is never reported as "no vulnerabilities"
 | `partial` | several scanners were requested and some failed; `vulnerabilities` holds the findings of the ones that ran and `failed_scanners` names the others |
 | `failed` | no scanner produced a result; `vulnerabilities` is empty and the counts are 0, which means *not scanned*, not *clean* |
 
-For `partial` and `failed` results `scan_error` summarizes each failed scanner as `<scanner>: <reason>`, separated by `; `, for example `trivy: scanner is not available on the server; osv: scan timed out`. The reason is one of a fixed set, so the response never contains command lines, paths, stderr or upstream bodies (those are written to the server log only):
+For `partial` and `failed` results `scan_error` summarizes each failed scanner as `<scanner>: <reason>`, separated by `; `, for example `trivy: scanner is not available on the server (scanner_unavailable), setup guide: <url>; osv: scan timed out`. The reason is one of a fixed set, so the response never contains command lines, paths, stderr or upstream bodies (those are written to the server log only):
 
 | Cause | `scan_error` reason |
 |---|---|
-| `trivy`/`grype` not installed or not startable | `scanner is not available on the server` |
+| `trivy`/`grype` not installed or not startable | `scanner is not available on the server (scanner_unavailable), setup guide: <url>` |
+| `trivy`/`grype` installed but its vulnerability database is not downloaded yet, or the CLI reports a missing/corrupt database | `scanner vulnerability database is not ready (scanner_db_unavailable), setup guide: <url>` |
 | 120 s limit reached | `scan timed out` |
 | the scan was canceled | `scan was canceled` |
 | the CLI exited with an error | `scanner exited with an error` |
@@ -67,6 +87,116 @@ For `partial` and `failed` results `scan_error` summarizes each failed scanner a
 Failed vulnerability scans stored before this behavior (which kept the raw scanner error) have their `scan_error` replaced by `scan failed` when the database is migrated. The web UI shows them as *Not scanned* and *Partial* instead of as clean.
 
 The MCP tool `get_vulnerabilities` summarizes stored results and counts `failed` and `partial` scans in `failed_scans` ([MCP](../integrations/mcp.md)).
+
+## Installing Trivy and Grype
+
+`osv` works out of the box. `trivy` and `grype` are external programs: the server runs them as subprocesses and keeps their vulnerability databases in a cache directory. Neither is part of the release image (it is shell-less and holds only the server), so enable them with one of:
+
+| Where the server runs | How |
+|---|---|
+| Binary / VM | install `trivy` and/or `grype` so they are on the server's `PATH`, or set [`OPENARTIFACT_TRIVY_PATH` / `OPENARTIFACT_GRYPE_PATH`](../getting-started/configuration.md#vulnerability-scanners-scanners) |
+| Any, no rebuild | `OPENARTIFACT_TRIVY_INSTALL=auto` and/or `OPENARTIFACT_GRYPE_INSTALL=auto`: the server downloads a pinned, checksum-verified release into the cache directory ([details](#runtime-download-install-auto)) |
+| Docker Compose | `OPENARTIFACT_SCANNERS=trivy` (or `grype`, `all`) in `docker/.env`, then `docker compose build openartifact`; the compose file already mounts a `scanner_cache` volume |
+| Your own build | `docker build -f docker/Dockerfile --build-arg SCANNERS=trivy .` (`none` default, `trivy`, `grype`, `all`) |
+| Released image, Kubernetes | build a derived image (below), and give the pod a writable volume for the cache directory |
+
+The server resolves the binaries when it starts and logs, per scanner, the path it found (`vulnerability scanner available`, with `binary`, `cache_dir`, `db_state`) or a warning when it is missing. A binary installed later is found on the next request (no restart), but its database download only starts at server start (or, with `install: auto`, once the installer has put the binary in place).
+
+### Runtime download (`install: auto`)
+
+With `OPENARTIFACT_TRIVY_INSTALL=auto` (`scanners.trivy.install`) and/or `OPENARTIFACT_GRYPE_INSTALL=auto` the server installs the scanner itself, so the released image and a plain binary install work without a derived image. The default is `none`: nothing is downloaded and executed unless you ask for it.
+
+- **Precedence**: a configured path (`OPENARTIFACT_TRIVY_PATH`) always wins, then a binary on `PATH`, then the installed copy. A configured path that does not exist is an error, never replaced by a download.
+- **What is downloaded**: the release compiled into the server (Trivy 0.76.1, Grype 0.121.0 at the time of writing, the same versions the `SCANNERS` image variant bundles; `linux/amd64` and `linux/arm64` only). The URL is `<downloadBaseUrl>/<owner>/<repo>/releases/download/v<version>/<archive>.tar.gz`, for example `https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz`.
+- **How it is verified**: the archive is streamed to a temporary file under a size cap (256 MiB) while its sha256 is computed; a mismatch with the checksum pinned in the server deletes it and nothing is extracted. Only the scanner binary is extracted (cap 512 MiB), and the extracted binary's sha256 must also match its pinned value. An archive containing a symlink, a hard link, an absolute path or a `..` path, or a binary that is not a regular file, is rejected whole. The file is written 0755, fsynced and renamed into `<cacheDir>/bin/<scanner>/<version>/<scanner>`, so a crash never leaves a half-written binary. Nothing is executed before the checks pass.
+- **Restarts**: an installed copy is re-hashed at startup against the pinned checksum and reused without downloading (also in offline mode); a copy that fails the check is discarded and downloaded again. Install the cache directory on a persistent volume to avoid downloading on every start.
+- **The installed file is trusted only while it is private**: `<cacheDir>/bin`, `bin/<scanner>`, `bin/<scanner>/<version>` and the binary must be real directories and a regular file (no symlinks), owned by the user the server runs as, and not writable by group or others. This is checked when the copy is installed or reused and again before every use; if the file changed since it was verified (another inode, size or modification time) it is hashed again and must still match the pinned checksum. A violation is reported as `scanner_install_failed` ("install directory is not private to the server's user") and the binary is not executed. The binary is written non-executable and only given mode 0755 after its checksum matched.
+- **A persistent cache directory is required**: with no `OPENARTIFACT_SCANNER_CACHE_DIR` and no user cache directory (no `$XDG_CACHE_HOME` or `$HOME`) the default falls back to the shared temp directory; `install: auto` is then refused (logged at error level, status `scanner_install_failed` with "set OPENARTIFACT_SCANNER_CACHE_DIR") because a downloaded binary would be executed from a directory every local user can write to.
+- **Several replicas on one volume**: each scanner has a lock file (`<cache directory>/.trivy.lock` and `.grype.lock`; advisory `flock`) held while the binary is installed and while its database is updated, so replicas that share a `ReadWriteMany` cache volume take turns and download once instead of racing; a replica waiting for the lock waits until the holder finishes (or its own shutdown). Interrupted installs leave `.archive-*` and `.bin-*` files that are cleaned up only when older than the install timeout (10 minutes), so another process's running download is never deleted. `flock` is advisory and local to the volume's semantics: on a network filesystem without lock support, give each replica its own cache volume (or an `emptyDir`). On non-Unix platforms there is no cross-process lock.
+- **Retries**: a failed download or checksum is retried with the same backoff as the database updater (1 minute up to 1 hour). Offline mode only adopts an already installed copy.
+- **`noexec` mounts**: after installing, the server runs the binary once (`--version`). If the cache directory is on a `noexec` mount that fails and the scanner reports `scanner_install_noexec`; mount the volume with exec, point `OPENARTIFACT_SCANNER_CACHE_DIR` somewhere executable, or provide the binary yourself.
+- **Mirrors**: `OPENARTIFACT_SCANNER_DOWNLOAD_BASE_URL` (`scanners.downloadBaseUrl`, default `https://github.com`) must be an `https` URL without credentials, query or fragment (a path prefix is allowed). The mirror must serve GitHub's release layout: `<base>/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz`, `…/aquasecurity/trivy/…/trivy_0.76.1_Linux-ARM64.tar.gz`, `<base>/anchore/grype/releases/download/v0.121.0/grype_0.121.0_linux_amd64.tar.gz` and `…_linux_arm64.tar.gz`. The pinned checksums apply, so a mirror cannot substitute other bytes. `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` are honored. The mirror host itself may be on a private network. A redirect is followed only over `https`, at most 3 times, and credentials are never forwarded. Direct connections are refused at connect time (after name resolution, so a name that resolves to an internal address is caught too) when they would reach a private, loopback or link-local address, except the mirror itself. **Behind a proxy** the proxy resolves and connects, so the server can only check the scheme and literal IP addresses in a redirect: the proxy's own egress policy is what keeps a redirect away from internal hosts.
+- **Egress**: `github.com` and `release-assets.githubusercontent.com` (GitHub redirects release assets there; the redirect host can change, so allow-list it by name only if you must, and check the server log if downloads fail behind a firewall), or only your mirror. The databases need further hosts (see [Network access](#network-access)).
+- **Status**: while downloading, the [readiness](#checking-scanner-readiness) endpoint reports `install_state: "installing"` and code `scanner_installing`; after a failure `install_state: "failed"` with `scanner_install_failed` or `scanner_install_noexec`. The Prometheus counter `openartifact_scanner_install_attempts_total{scanner,result}` counts attempts; `result` is one of `installed`, `reused`, `unsupported_platform`, `download_failed`, `checksum_mismatch`, `extract_failed`, `noexec`, `insecure_location`, `failed`.
+- **Bumps**: the pinned versions and checksums are in `internal/vuln/scanners_manifest.json`, compiled into the server. They change only with a new OpenArtifact release: `scripts/update-scanner-manifest.sh` reads the versions from the digest-pinned images in `docker/Dockerfile`, downloads the upstream `*_checksums.txt` and archives, verifies them and rewrites the manifest (`--check` reports a stale one); a unit test fails if the manifest and the Dockerfile disagree. An operator who wants another version installs it and sets `OPENARTIFACT_TRIVY_PATH`.
+
+Security note: `auto` makes the server download and execute third-party code at runtime. The checksums come from the upstream release's own `checksums.txt` files (fetched over TLS when the manifest was generated, not signature-verified), so the guarantee is that the server runs the build that was pinned in its release, not that upstream is trustworthy. If that is not acceptable, bundle the binaries at build time (the `SCANNERS` build arg) or provide them yourself.
+
+### Databases and the cache directory
+
+- **Scans never download.** A scan runs the CLI offline against the databases already in the cache directory (`trivy --skip-db-update --offline-scan`, `GRYPE_DB_AUTO_UPDATE=false`), so a slow or blocked network cannot eat the 120 s scan limit. If the database is not there, the scan fails at once with `scanner_db_unavailable`.
+- **A background updater downloads them.** At startup (and then every `OPENARTIFACT_SCANNER_UPDATE_INTERVAL`, default 6h, at least 1h, `0` = once) the server runs `trivy image --download-db-only` and `grype db update` for each scanner that is installed. A failure is logged and retried with exponential backoff (1 minute up to 1 hour). The first download takes from under a minute (Trivy) to a few minutes (Grype); until it finishes the scanner is `updating` (see [readiness](#checking-scanner-readiness)).
+- **The scanners get a trimmed environment**: Trivy and Grype run with `PATH`, `HOME`, `TMPDIR`/`TMP`/`TEMP`, `USER`, `LANG`/`LC_*`, `TZ`, the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`, in either case), `SSL_CERT_FILE`, `SSL_CERT_DIR`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `DOCKER_CONFIG` and any `TRIVY_*` / `GRYPE_*` variable of the server; the server's other variables (database password, signing keys, storage credentials) are not passed on. A scanner that needs another variable (for example a private registry token) must be given it as `TRIVY_*` / `GRYPE_*`.
+- **Cache directory**: `OPENARTIFACT_SCANNER_CACHE_DIR` (`scanners.cacheDir`, an absolute path). Trivy uses `<dir>/trivy`, Grype `<dir>/grype`. The default is `<user cache dir>/openartifact/scanners` (`$XDG_CACHE_HOME` or `~/.cache`, else the temp directory, where `install: auto` is refused, see above). The image sets `/var/cache/openartifact/scanners`, owned by uid 10001, and declares it a `VOLUME`; keep it on a volume when the root filesystem is read-only, and persist it so a restart does not download again. In the image the environment variable is already set, so change it with the variable rather than the YAML file.
+- **Disk**: measured with Trivy 0.76.1 and Grype 0.121.0, the Trivy database takes about 1.6 GB on disk and the Grype database about 3.3 GB; a Grype download takes a few minutes on a fast link. Size the cache volume for both plus headroom for a second copy of the database being updated: Trivy refreshes into a staging directory (`<cacheDir>/trivy/.staging`, seeded with hard links so an unchanged database is not downloaded again) and swaps the finished database in atomically (`renameat2` on Linux), so scans keep using the old database for the whole refresh; Grype activates a database by renaming its own download directory, and unfinished `grype-db-download*` directories (up to the database's size) are removed before and after each run. The Java index (`trivy-java-db`, several hundred MB) is **not** downloaded unless `OPENARTIFACT_TRIVY_JAVA_DB_REPOSITORY` is set: OpenArtifact scans package names and versions, not JARs.
+
+### Network access
+
+| Scanner | Needs outbound HTTPS to | Used for |
+|---|---|---|
+| `osv` | `api.osv.dev` | every scan |
+| `trivy` | `mirror.gcr.io` (tried first; serves the database itself) and `ghcr.io` (its blobs come from `pkg-containers.githubusercontent.com`) | database download, by the background updater only |
+| `grype` | `grype.anchore.io` (serves the listing and the archive itself) | database download, by the background updater only |
+| any, with `install: auto` | `github.com` and `release-assets.githubusercontent.com` (or your `downloadBaseUrl`) | the scanner binary, once per version |
+
+The scan itself needs no network for `trivy` and `grype`. In a restricted network, either allow those hosts or point the updater at a mirror: `OPENARTIFACT_TRIVY_DB_REPOSITORY` (an OCI repository holding a copy of `trivy-db`) and `OPENARTIFACT_GRYPE_DB_URL` (the URL of a grype `listing.json`). An HTTP(S) proxy configured in the server's environment (`HTTPS_PROXY`, `NO_PROXY`) is passed to the CLIs.
+
+### Offline (air-gapped) mode
+
+`OPENARTIFACT_SCANNER_OFFLINE=true` stops the updater from ever contacting the network. Fill the cache directory yourself, for example:
+
+```sh
+trivy image --download-db-only --cache-dir /srv/scanners/trivy            # on a connected host
+GRYPE_DB_CACHE_DIR=/srv/scanners/grype grype db update                    # on a connected host
+# copy /srv/scanners to the server's OPENARTIFACT_SCANNER_CACHE_DIR, owned by the server's user
+```
+
+With offline mode on and no database in the directory, the scanner reports `missing` and scans fail with `scanner_db_unavailable`. Refresh the files by hand to update; the server notices new database files on the next request.
+
+### Docker and Kubernetes
+
+Build the image with the scanners bundled (the binaries are copied, digest-pinned, from the upstream `aquasec/trivy` and `anchore/grype` images; the final stage still has no shell):
+
+```sh
+docker build -f docker/Dockerfile --build-arg RUNTIME=distroless --build-arg SCANNERS=trivy -t openartifact:trivy .
+```
+
+To keep using a released image, derive from it:
+
+```dockerfile
+FROM ghcr.io/openartifact/openartifact:X.Y.Z
+COPY --from=docker.io/aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c /usr/local/bin/trivy /usr/local/bin/trivy
+# grype: COPY --from=docker.io/anchore/grype:v0.121.0@sha256:621d56d1d68106b787022c81546f7e0a36202a25d1239f0c20195fab8c16f7ea /grype /usr/local/bin/grype
+```
+
+Kubernetes and Helm: mount a writable volume (an `emptyDir` is enough, a PVC avoids re-downloading after a restart) at the cache directory, writable by uid/gid 10001 (set the pod's `fsGroup: 10001`). Allow egress to the hosts above (or set the mirror variables), and run with a read-only root filesystem as usual. With several replicas on separate volumes (an `emptyDir` or a `ReadWriteOnce` PVC per pod) each pod downloads its own copy; replicas that share one `ReadWriteMany` volume take turns through the [per-scanner lock](#runtime-download-install-auto) and download once.
+
+### Checking scanner readiness
+
+`GET /api/v1/repositories/{name}/vuln/scanners` (admin only) reports each scanner in the order `osv`, `trivy`, `grype`:
+
+```json
+{"scanners":[
+  {"name":"osv","available":true,"ready":true,"db_state":null,"db_updated_at":null,"install_state":null,"code":null,"message":null,"docs_url":null},
+  {"name":"trivy","available":true,"ready":false,"db_state":"updating","db_updated_at":null,"install_state":"ready",
+   "code":"scanner_db_unavailable","message":"The vulnerability database is being downloaded: retry in a few minutes.","docs_url":"…"},
+  {"name":"grype","available":false,"ready":false,"db_state":null,"db_updated_at":null,"install_state":null,
+   "code":"scanner_unavailable","message":"grype was not found on the server's PATH: …","docs_url":"…"}]}
+```
+
+`available` is whether the binary starts; `ready` is whether a scan can run now. `db_state` is `ready`, `updating`, `failed` (the last download failed: see the server log) or `missing`. `install_state` (`installing`, `ready` or `failed`, else `null`) tells the progress of the [runtime download](#runtime-download-install-auto). It is `null` when the binary is on `PATH`, configured, or `install` is `none`. The response never contains filesystem paths or the download host. The web UI uses it to disable scanners that are not ready in the *Scan package* form and to show `message` with a link to this section.
+
+| `code` | Meaning | Fix |
+|---|---|---|
+| `scanner_unavailable` | the binary was not found or is not executable | install it, set `OPENARTIFACT_TRIVY_PATH` / `OPENARTIFACT_GRYPE_PATH`, or set `…_INSTALL=auto` |
+| `scanner_installing` | the pinned release is being downloaded (`install: auto`) | wait a minute or two |
+| `scanner_install_failed` | the download, checksum check or extraction failed; there is no pinned build for this platform (the message names it); the install directory is not private to the server's user; the cache directory is the shared temp directory; or the installed binary disappeared or changed after it was verified (restart the server) | check egress to the download host (or `downloadBaseUrl`), fix the directory ownership and permissions, set `OPENARTIFACT_SCANNER_CACHE_DIR`; the server log has the cause; on other platforms provide the binary |
+| `scanner_install_noexec` | the binary was installed but cannot be executed (a `noexec` mount) | mount the cache directory with exec or provide the binary |
+| `scanner_db_unavailable` | no vulnerability database yet (still downloading, download failing, or offline without one) | wait, allow egress / set a mirror, or fill the cache in offline mode |
+
+### Why external binaries
+
+The design follows [zot](https://zotregistry.dev/)'s CVE scanning: scans run offline against a database that a background task refreshes on an interval with backoff, with a configurable database repository and readiness reporting. zot embeds Trivy as a Go library; OpenArtifact runs the CLIs instead, because that keeps the server binary at its current size and its module graph and vulnerability surface free of Trivy's, lets operators upgrade Trivy independently of the server, and is the only way to offer Grype too. Embedding would be reconsidered if Trivy exposed a stable library API.
 
 ## Secret scans
 

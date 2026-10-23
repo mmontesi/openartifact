@@ -25,8 +25,14 @@ import (
 // error bodies; it must never reach PublicMessage or Outcome.PublicError.
 const secretMarker = "TOPSECRET-/var/lib/oa/token"
 
-// installFakeScanner puts an executable shell script called name first on PATH
-// (the rest of PATH stays so the script can call sleep, cat, ...).
+// fakeScannerDirEnv names the variable that remembers the directory holding
+// a test's fake scanners, so that several can share one PATH.
+const fakeScannerDirEnv = "OA_TEST_FAKE_SCANNER_DIR"
+
+// installFakeScanner puts an executable shell script called name on a PATH that
+// holds only the test's fake scanners: a real trivy or grype installed on the
+// host is never found, so a test never depends on (or runs) one. The script
+// sets PATH=/usr/bin:/bin itself before calling sleep, cat, ...
 func installFakeScanner(t *testing.T, name, script string) {
 	t.Helper()
 
@@ -34,13 +40,46 @@ func installFakeScanner(t *testing.T, name, script string) {
 		t.Skip("sh not available")
 	}
 
-	dir := t.TempDir()
+	dir := os.Getenv(fakeScannerDirEnv)
+	if dir == "" {
+		dir = t.TempDir()
 
-	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+script+"\n"), 0o700); err != nil {
-		t.Fatal(err)
+		t.Setenv(fakeScannerDirEnv, dir)
+		t.Setenv("PATH", dir)
 	}
 
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nPATH=/usr/bin:/bin\n"+script+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// testRegistry returns a registry whose trivy and grype caches already hold a
+// database, so scans reach the (fake) binaries on PATH.
+func testRegistry(t *testing.T, log *logger.Logger) *Registry {
+	t.Helper()
+
+	return NewRegistry(log, Options{CacheDir: seededCache(t)})
+}
+
+// seededCache creates a scanner cache base directory holding a trivy and a
+// grype database file.
+func seededCache(t *testing.T) string {
+	t.Helper()
+
+	base := t.TempDir()
+
+	for _, f := range []string{"trivy/db/trivy.db", "trivy/db/metadata.json", "grype/6/vulnerability.db"} {
+		p := filepath.Join(base, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	return base
 }
 
 // withoutScannerBinaries makes trivy and grype unfindable.
@@ -118,7 +157,7 @@ func TestCLIScanners_Failures(t *testing.T) {
 				defer cancel()
 			}
 
-			backend := NewScannerForBackend(tt.scanner, log)
+			backend := testRegistry(t, log).Backend(tt.scanner)
 
 			vulns, err := backend.Scan(ctx, "left-pad", "1.0.0", tt.ecosystem)
 			if err == nil {
@@ -174,7 +213,7 @@ func TestCLIScanners_Success(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			installFakeScanner(t, tt.scanner, tt.script)
 
-			out := Run(context.Background(), log, []ScannerBackend{NewScannerForBackend(tt.scanner, log)}, "left-pad", "1.0.0", "npm")
+			out := Run(context.Background(), log, []ScannerBackend{testRegistry(t, log).Backend(tt.scanner)}, "left-pad", "1.0.0", "npm")
 
 			if out.Status != StatusCompleted {
 				t.Fatalf("status = %q (%s), want %q", out.Status, out.PublicError(), StatusCompleted)
@@ -316,7 +355,7 @@ func TestRun_PartialWithRealScanners(t *testing.T) {
 
 	withoutScannerBinaries(t)
 
-	out := Run(context.Background(), log, []ScannerBackend{osv, NewScannerForBackend("trivy", log)}, "left-pad", "1.0.0", "npm")
+	out := Run(context.Background(), log, []ScannerBackend{osv, testRegistry(t, log).Backend("trivy")}, "left-pad", "1.0.0", "npm")
 
 	if out.Status != StatusPartial {
 		t.Fatalf("status = %q, want %q", out.Status, StatusPartial)
@@ -330,7 +369,7 @@ func TestRun_PartialWithRealScanners(t *testing.T) {
 		t.Errorf("findings of the scanner that worked were dropped: %v", vulnIDs(out.Vulnerabilities))
 	}
 
-	if want := "trivy: scanner is not available on the server"; out.PublicError() != want {
+	if want := "trivy: " + (&ScanError{Kind: FailureUnavailable}).PublicMessage(); out.PublicError() != want {
 		t.Errorf("PublicError = %q, want %q", out.PublicError(), want)
 	}
 }

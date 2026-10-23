@@ -61,6 +61,7 @@ import (
 	"github.com/openartifact/openartifact/internal/telemetry"
 	"github.com/openartifact/openartifact/internal/tiering"
 	"github.com/openartifact/openartifact/internal/trash"
+	"github.com/openartifact/openartifact/internal/vuln"
 	"github.com/openartifact/openartifact/internal/webhook"
 	"github.com/openartifact/openartifact/internal/worker"
 	"github.com/openartifact/openartifact/pkg/gpg"
@@ -884,8 +885,17 @@ func run(args []string) error {
 	secretsHandler := api.NewSecretsHandler(db, log, secretScanner)
 	secretsHandler.RegisterRoutes(authedAPI, "/api/v1/repositories/{name}")
 
-	vulnHandler := api.NewVulnHandler(db, log, evaluator)
+	// Trivy and grype are external binaries; the registry downloads and
+	// refreshes their databases in the background (docs/security/scanning.md).
+	scannerRegistry := vuln.NewRegistry(log, cfg.Scanners.VulnOptions()).WithMetrics(reg)
+	scannerRegistry.LogStatus()
+	scannerRegistry.Start(context.Background())
+
+	extraStops = append(extraStops, scannerRegistry.Stop)
+
+	vulnHandler := api.NewVulnHandler(db, log, evaluator, scannerRegistry)
 	vulnHandler.RegisterRoutes(authedAPI, "/api/v1/repositories/{name}")
+	vulnHandler.RegisterOverviewRoutes(authedAPI)
 
 	quotasHandler := api.NewQuotasHandler(log, db, evaluator)
 	quotasHandler.RegisterRoutes(authedAPI, "/api/v1/repositories/{name}")
