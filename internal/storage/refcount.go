@@ -15,8 +15,14 @@ import (
 	"github.com/openartifact/openartifact/internal/database"
 )
 
-// SafeDeleteBlob deletes the blob identified by sha256 from blobStore only if
-// no package-table row still references it (db.BlobReferenceCount == 0).
+// SafeDeleteBlob deletes the blob identified by sha256 only if no package-table
+// row still references it (db.BlobReferenceCount == 0).
+//
+// With the Postgres database "deletes" means: the blobs row is removed at once
+// and the bytes are queued for physical deletion by the blob deletion sweeper,
+// which removes them after the configured grace period and once no running
+// backup can still read them. blobStore is used only by databases without that
+// queue (test doubles), which delete the bytes immediately.
 //
 // Callers MUST delete their own DB row referencing the blob BEFORE calling
 // this function, otherwise BlobReferenceCount will still see that row and
@@ -26,20 +32,18 @@ func SafeDeleteBlob(ctx context.Context, db database.Database, blobStore BlobSto
 		return err
 	}
 
-	// Preferred path: check + blobs-row delete + storage delete under an
-	// advisory lock shared with uploaders (WithBlobLock).
+	// Preferred path: check + blobs-row delete + queueing the bytes for
+	// deletion, in one transaction under an advisory lock shared with uploaders
+	// (WithBlobLock). The bytes themselves are removed later by the blob
+	// deletion sweeper, once the grace period has passed and no running backup
+	// can still need them.
 	if d, ok := db.(blobDeleter); ok {
-		_, err := d.DeleteBlobIfUnreferenced(ctx, sha256, func(ctx context.Context) error {
-			if err := blobStore.Delete(ctx, sha256); err != nil {
-				return fmt.Errorf("failed to delete blob from storage: %w", err)
-			}
-
-			return nil
-		})
+		_, err := d.DeleteBlobIfUnreferenced(ctx, sha256)
 
 		return err
 	}
 
+	// Databases without the queue (test doubles) delete the bytes right away.
 	count, err := db.BlobReferenceCount(ctx, sha256)
 	if err != nil {
 		return fmt.Errorf("failed to check blob reference count: %w", err)
@@ -57,7 +61,7 @@ func SafeDeleteBlob(ctx context.Context, db database.Database, blobStore BlobSto
 }
 
 type blobDeleter interface {
-	DeleteBlobIfUnreferenced(ctx context.Context, sha256 string, deleteStorage func(ctx context.Context) error) (bool, error)
+	DeleteBlobIfUnreferenced(ctx context.Context, sha256 string) (bool, error)
 }
 
 type blobLocker interface {
@@ -254,10 +258,33 @@ func ReclaimMetadataBlob(ctx context.Context, db database.Database, blobStore Bl
 			return nil
 		}
 
-		if err := blobStore.Delete(ctx, sha); err != nil {
-			return fmt.Errorf("delete metadata blob %s: %w", sha, err)
+		return DiscardUnreferencedBytes(ctx, db, blobStore, sha)
+	})
+}
+
+type blobDeletionQueue interface {
+	EnqueueBlobDeletion(ctx context.Context, sha256, scope string) error
+}
+
+// DiscardUnreferencedBytes frees the bytes of a blob the caller has just found
+// unreferenced under the blob's lock, without a blobs row of its own to delete
+// (generated metadata). The bytes are queued like any other deleted blob, not
+// removed at once: a running backup may still list a blobs row of the same
+// content (an upload of byte-identical content that was deleted since) and must
+// find its bytes. The sweeper re-checks references before it removes anything.
+// Databases without the queue (test doubles) delete right away.
+func DiscardUnreferencedBytes(ctx context.Context, db database.Database, blobStore BlobStore, sha string) error {
+	if q, ok := db.(blobDeletionQueue); ok {
+		if err := q.EnqueueBlobDeletion(ctx, sha, database.BlobDeletionScopeAll); err != nil {
+			return fmt.Errorf("queue metadata blob %s for deletion: %w", sha, err)
 		}
 
 		return nil
-	})
+	}
+
+	if err := blobStore.Delete(ctx, sha); err != nil {
+		return fmt.Errorf("delete metadata blob %s: %w", sha, err)
+	}
+
+	return nil
 }
