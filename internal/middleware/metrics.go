@@ -5,6 +5,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,17 +15,28 @@ import (
 	"github.com/openartifact/openartifact/internal/metrics"
 )
 
+// unmatchedPath is the path label of requests that match no route (404, 405):
+// a fixed value, never the raw path, so cardinality stays bounded.
+const unmatchedPath = "unmatched"
+
 func MetricsMiddleware(reg *metrics.Registry) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
+			// The middleware wraps the router from outside, where chi has not
+			// created its route context yet. Seed one: chi reuses it and fills
+			// in the matched pattern, which is read back below.
+			if chi.RouteContext(r.Context()) == nil {
+				r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, chi.NewRouteContext()))
+			}
+
 			next.ServeHTTP(wrapped, r)
 
 			duration := time.Since(start)
 
-			path := "unknown"
+			path := unmatchedPath
 
 			if rctx := chi.RouteContext(r.Context()); rctx != nil {
 				if p := rctx.RoutePattern(); p != "" {
