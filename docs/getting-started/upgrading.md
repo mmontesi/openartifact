@@ -124,6 +124,8 @@ Migration `054` (GPG key management; additive) creates `gpg_keys` and `gpg_key_r
 - **Bundles can be sealed with a GPG signature** (`gpg_key_id`, previously `501`), with `GET .../manifest` and `.../manifest.asc` to verify it.
 - **RPM repositories can sign packages.** Migration `054` also adds `repositories.sign_packages` (default `false`, so nothing changes on upgrade). Enabling it on a hosted RPM repository signs every later upload with the repository's signing key, so dnf works with the default `gpgcheck=1`; the stored file is the signed one (new SHA-256), existing packages are not re-signed and key rotation does not touch them ([RPM](../formats/rpm.md#signing-packages-sign_packages)). Debian needs no change: apt trusts the signed `Release`.
 
+- **Deb and RPM group repositories** can now be created. Migration `059` adds `group_metadata_state` and `group_package_owners` (and one `CREATE INDEX CONCURRENTLY`); it is additive and a rolling upgrade is fine. Groups of these formats generate their metadata at startup for groups that have none, and when members change; see [Deb and RPM groups](../repositories/hosted-proxy-group.md#deb-and-rpm-groups) for what is merged, signing and access control.
+
 #### Multipart and universal presigned uploads (migration `056`)
 
 - Migration `056` adds `part_size` and `multipart_id` to `presigned_uploads`. It is additive; a rolling upgrade is fine.
@@ -132,6 +134,7 @@ Migration `054` (GPG key management; additive) creates `gpg_keys` and `gpg_key_r
 - Filesystem and OCI storage serve the upload themselves through `PUT /upload-relay/{id}/{part}` with a short-lived HMAC-signed URL. It is built from `baseUrl`, so set `BASE_URL` to an address clients can reach; without it the create call still answers `501 presign_unsupported`. The filesystem backend keeps its staging data in `<path>/staging` (never listed as blobs); OCI spools in `stagingPath` / `STORAGE_STAGING_PATH`.
 - `complete` timeouts now scale with the object size (30 minutes plus one second per 20 MiB, at most 6 hours), and promoting an S3 object above 4 GiB uses ranged `UploadPartCopy`.
 - Add an `AbortIncompleteMultipartUpload` lifecycle rule (2 days) to the bucket as defence in depth; the cleanup worker aborts abandoned multipart uploads itself.
+
 ### 0.7.0
 
 Migrations `041` (scan overview index, `CREATE INDEX CONCURRENTLY`), `051` (webhook payload format), `052` (VEX statements) and `053` (license source and unresolved licenses). All are additive; a rolling upgrade from 0.6.0 is fine. Migration `041` is numbered below `051`–`053` on purpose; the migrator applies every file not yet recorded, whatever its number.
