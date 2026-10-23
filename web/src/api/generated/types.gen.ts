@@ -1197,6 +1197,36 @@ export type DockerGcReport = {
     truncated: boolean;
 };
 
+export type CleanupPreview = {
+    repository: string;
+    format: string;
+    dry_run: boolean;
+    /**
+     * Package rows a run would remove (one per file for formats that store files separately)
+     */
+    rows: number;
+    items: Array<CleanupPreviewItem>;
+    /**
+     * items is capped at 500 entries
+     */
+    truncated: boolean;
+};
+
+export type ProjectCleanupPreview = {
+    dry_run: boolean;
+    /**
+     * Total rows over all repositories
+     */
+    rows: number;
+    repositories: Array<CleanupPreview>;
+};
+
+export type CleanupPreviewItem = {
+    id: string;
+    name: string;
+    version: string;
+};
+
 export type PresignedUploadRequest = {
     /**
      * Artifact path inside the repository (no empty, '.' or '..' segments)
@@ -1309,6 +1339,10 @@ export type PackageDeleteResult = {
     data?: {
         repository?: string;
         package_id?: string;
+        /**
+         * The package went to the trash and can be restored (absent for deb and rpm)
+         */
+        trashed?: boolean;
     };
     error?: string;
     code?: string;
@@ -6048,6 +6082,34 @@ export type PostApiV1ProjectsByProjectCleanupPoliciesResponses = {
 
 export type PostApiV1ProjectsByProjectCleanupPoliciesResponse = PostApiV1ProjectsByProjectCleanupPoliciesResponses[keyof PostApiV1ProjectsByProjectCleanupPoliciesResponses];
 
+export type PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunData = {
+    body?: never;
+    path: {
+        project: string;
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{project}/cleanup-policies/{id}/dry-run';
+};
+
+export type PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunErrors = {
+    /**
+     * Error
+     */
+    default: Error;
+};
+
+export type PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunError = PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunErrors[keyof PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunErrors];
+
+export type PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunResponses = {
+    /**
+     * What a run would remove
+     */
+    200: ProjectCleanupPreview;
+};
+
+export type PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunResponse = PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunResponses[keyof PostApiV1ProjectsByProjectCleanupPoliciesByIdDryRunResponses];
+
 export type DeleteApiV1ProjectsByProjectCleanupPoliciesByIdData = {
     body?: never;
     path: {
@@ -6966,6 +7028,34 @@ export type PostApiV1RepositoriesByNameCleanupPoliciesByIdRunResponses = {
      */
     202: unknown;
 };
+
+export type PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunData = {
+    body?: never;
+    path: {
+        name: string;
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/repositories/{name}/cleanup-policies/{id}/dry-run';
+};
+
+export type PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunErrors = {
+    /**
+     * Error
+     */
+    default: Error;
+};
+
+export type PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunError = PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunErrors[keyof PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunErrors];
+
+export type PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunResponses = {
+    /**
+     * What a run would remove
+     */
+    200: CleanupPreview;
+};
+
+export type PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunResponse = PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunResponses[keyof PostApiV1RepositoriesByNameCleanupPoliciesByIdDryRunResponses];
 
 export type PostApiV1RepositoriesByNameRegistryGcData = {
     body?: DockerGcRequest;

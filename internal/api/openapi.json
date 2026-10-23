@@ -2944,6 +2944,84 @@
           "truncated"
         ]
       },
+      "CleanupPreview": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "rows": {
+            "type": "integer",
+            "description": "Package rows a run would remove (one per file for formats that store files separately)"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CleanupPreviewItem"
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "items is capped at 500 entries"
+          }
+        },
+        "required": [
+          "repository",
+          "format",
+          "dry_run",
+          "rows",
+          "items",
+          "truncated"
+        ]
+      },
+      "ProjectCleanupPreview": {
+        "type": "object",
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "rows": {
+            "type": "integer",
+            "description": "Total rows over all repositories"
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CleanupPreview"
+            }
+          }
+        },
+        "required": [
+          "dry_run",
+          "rows",
+          "repositories"
+        ]
+      },
+      "CleanupPreviewItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version"
+        ]
+      },
       "PresignedUploadRequest": {
         "type": "object",
         "required": [
@@ -3197,6 +3275,10 @@
               "package_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "trashed": {
+                "type": "boolean",
+                "description": "The package went to the trash and can be restored (absent for deb and rpm)"
               }
             }
           },
@@ -11000,6 +11082,56 @@
         }
       }
     },
+    "/api/v1/projects/{project}/cleanup-policies/{id}/dry-run": {
+      "post": {
+        "summary": "Preview what a project default cleanup policy would remove",
+        "description": "Owners and global admins. Expands the policy over the repositories a run would cover and lists, per repository, the rows a run would remove (capped at 500 each). Nothing is changed.",
+        "tags": [
+          "Projects"
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What a run would remove",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCleanupPreview"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/cleanup-policies/{id}": {
       "put": {
         "summary": "Update project cleanup policy",
@@ -12398,6 +12530,55 @@
         "responses": {
           "202": {
             "description": "Accepted"
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{name}/cleanup-policies/{id}/dry-run": {
+      "post": {
+        "summary": "Preview what a cleanup policy would remove (admin; nothing is changed)",
+        "description": "Evaluates the policy now with every protection a run applies (immutable releases, release bundles, quarantine, dist-tagged npm versions, the newest build of a maven snapshot) and lists the rows a run would remove or move to the trash. Synchronous; the list is capped at 500 rows.",
+        "tags": [
+          "Cleanup"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What a run would remove",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CleanupPreview"
+                }
+              }
+            }
           },
           "default": {
             "description": "Error",
@@ -13889,8 +14070,8 @@
     },
     "/api/v1/repositories/{name}/packages/{id}": {
       "delete": {
-        "summary": "Delete a RPM package",
-        "description": "Delete a package from a hosted repository. Requires write access.",
+        "summary": "Delete a package",
+        "description": "Delete a package row (an id of the package listing) from a hosted repository of any format: into the trash when the repository keeps one, else for good, refreshing the format's generated metadata. A conan recipe revision goes with its files. Released versions of immutable repositories answer 409 unless an admin passes force. Requires write access.",
         "tags": [
           "Repositories"
         ],
