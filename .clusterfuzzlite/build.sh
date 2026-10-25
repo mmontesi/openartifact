@@ -17,6 +17,12 @@ cd "$SRC/openartifact"
 module=$(go list -m)
 built=0
 
+# $LIB_FUZZING_ENGINE links the image's precompiled gosigfuzz.o into every
+# target. Recompile it from our copy, which makes libFuzzer wait for the Go
+# runtime before it reads the coverage counters (see gosigfuzz.c).
+sigfuzz_obj="${GOPATH:-/root/go}/gosigfuzz/gosigfuzz.o"
+$CC $CFLAGS -c .clusterfuzzlite/gosigfuzz.c -o "$sigfuzz_obj"
+
 # <file>:func FuzzX(f *testing.F)  -> one line per target.
 targets=$(mktemp)
 grep -rHoE --include='*_test.go' --exclude-dir=web --exclude-dir=node_modules --exclude-dir=.git \
