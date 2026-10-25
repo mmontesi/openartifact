@@ -17,7 +17,7 @@ import (
 
 	"github.com/openartifact/openartifact/internal/auth"
 	"github.com/openartifact/openartifact/internal/crypto"
-	"github.com/openartifact/openartifact/internal/database"
+	"github.com/openartifact/openartifact/internal/database/databasetest"
 	"github.com/openartifact/openartifact/internal/database/models"
 	"github.com/openartifact/openartifact/internal/dtrack"
 	"github.com/openartifact/openartifact/internal/middleware"
@@ -28,7 +28,7 @@ import (
 const dtSecretKey = "odt_super_secret_value"
 
 type dtDB struct {
-	database.BaseMockDB
+	databasetest.BaseMockDB
 
 	mu       sync.Mutex
 	settings map[string]string
@@ -170,10 +170,7 @@ func newDTFixture(t *testing.T) *dtFixture {
 	pusher := &fakePusher{}
 
 	r := chi.NewRouter()
-	NewDependencyTrackHandler(db, log, auth.NewEvaluator(db, log, false), pusher).
-		WithClientFactory(func(baseURL, apiKey string) (*dtrack.Client, error) {
-			return dtrack.NewClientWithHTTP(baseURL, apiKey, dt.Client())
-		}).RegisterAuthed(r)
+	NewDependencyTrackHandler(db, log, auth.NewEvaluator(db, log, false), pusher).RegisterAuthed(r)
 
 	return &dtFixture{router: r, db: db, pusher: pusher, dt: dt}
 }

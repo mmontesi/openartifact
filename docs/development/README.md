@@ -25,13 +25,14 @@ cd web && bun install && bun run dev
 | golangci-lint | v2.15.0 | `GOLANGCI_LINT_VERSION` in `ci.yml`; config in `.golangci.yaml` |
 | Trivy | v0.76.1 | `TRIVY_VERSION` in `ci.yml`, `release.yml`, `scheduled-scan.yml` (binary installed by `trivy-action`, which defaults to an older release) |
 | PostgreSQL | 18 | CI integration job (`postgres:18-alpine`); the `tests/integration` harness starts `postgres:16-alpine` itself |
-| sqlc, govulncheck, actionlint | see `tools/go.mod` | `tool` directives in `tools/go.mod` |
+| sqlc, govulncheck, deadcode, actionlint | see `tools/go.mod` | `tool` directives in `tools/go.mod` |
 
 `tools/` is a separate Go module so Dependabot can bump the tools without bloating the main module. Run them through the Go toolchain; nothing needs to be installed:
 
 ```sh
 go tool -modfile=tools/go.mod sqlc generate     # = make generate
 go tool -modfile=tools/go.mod govulncheck ./...
+go tool -modfile=tools/go.mod deadcode -tags integration ./...   # = make deadcode, see below
 go tool -modfile=tools/go.mod actionlint
 ```
 
@@ -52,6 +53,7 @@ bun, golangci-lint and Trivy versions are not tracked by Dependabot; bump them b
 | `make check` | `fmt` + `vet` + `lint`; run before opening a PR |
 | `make generate` | sqlc generate; run after editing `internal/database/queries/*.sql` or the schema, and commit `internal/database/dbsqlc/` |
 | `make docs-gen` | Regenerates the pages under `docs/reference/` (configuration keys, metrics, CLI commands, REST API) from the code; run after changing config keys, metrics, `oa` help or `internal/api/openapi.json`, and commit the result. `make docs-check` fails when they are stale |
+| `make deadcode` | Fails when Go code is unreachable from every `main` package see [Dead-code gate](#dead-code-gate) |
 | `make migrate` | `go run ./cmd/server -migrate` (apply migrations and exit) |
 | `make bench`, `make bench-load` | Benchmarks, see [performance](../operations/performance.md) |
 | `make docker-build` | Builds `openartifact:latest` from `docker/Dockerfile`; the runtime base is `RUNTIME=dhi` (default, needs `docker login dhi.io`) or `RUNTIME=distroless` (anonymous) |
@@ -140,6 +142,26 @@ The full list lives in [AGENTS.md](../../AGENTS.md); the ones that most often ma
 - Every config key settable in YAML needs an env override in `internal/config` and entries in `.env.example` and `openartifact.example.yaml`.
 - Every new file needs an SPDX header (the repository is REUSE-compliant).
 
+## Dead-code gate
+
+`make deadcode` (`scripts/deadcode-check.sh`, CI job `go`) runs [`deadcode`](https://pkg.go.dev/golang.org/x/tools/cmd/deadcode) (pinned in `tools/go.mod`) with `-tags integration` over every `main` package and fails on any function that none of them reaches. There is no allowlist: the expected result is zero findings. It deliberately runs **without** `-test`: with `-test` every test function is a root, so a production function that only tests call would count as live. Without it such functions are reported, so test-only helpers cannot hide in production files.
+
+The report is reduced to `file  symbol` lines (sorted, line numbers dropped), so the output is deterministic.
+
+### Test support packages
+
+Helpers shared by tests of several packages cannot live in a `_test.go` file. Put them in a package whose directory name ends in `test`, following the standard library (`httptest`, `iotest`): `internal/database/databasetest`, `internal/format/formattest`, `internal/gpgkeys/gpgkeystest`, `internal/licensemeta/archivetest`, `internal/licensepolicy/policytest`. That naming is the only exclusion: the script skips a package of this module whose directory name ends in `test` and that production code does not import (`internal/attest` ends in `test` too, but production imports it, so it is checked). Production code must never import a `*test` package.
+
+### Reading a failure
+
+The failure lists `file  Symbol` lines (`Type.Method` for methods). Handle each one:
+
+1. **Dead everywhere**: delete it, together with its tests.
+2. **Only tests use it**: move it into a `_test.go` file of the same package, or into a `*test` package when several packages share it. If a test only needs to wait for or observe background work, poll the observable outcome with a deadline instead of exporting a hook, or use a production lifecycle API that already exists (for example `WithTasks(bgtask.Runner)` and `Shutdown`).
+3. **Reached only through reflection, templates or `go:linkname`**: make the call visible to the analysis, or give the code a real production caller; there is no allowlist.
+
+To see why a function is live or dead run `go tool -modfile=tools/go.mod deadcode -tags integration -whylive=<pkg>.<Func> ./...`.
+
 ## CI
 
 Workflows live in [`.github/workflows`](../../.github/workflows). All actions are pinned by commit SHA and all container images by `@sha256` digest; Dependabot ([`.github/dependabot.yml`](../../.github/dependabot.yml)) bumps them weekly (7-day cooldown, minor/patch grouped) for GitHub Actions, Go modules (`/` and `/tools`), web dependencies (bun, `/web`), Dockerfile and compose images (the `dhi.io` base needs the `DHI_USERNAME`/`DHI_TOKEN` Dependabot secrets). Image builds in CI and release log in to `dhi.io` with the `DHI_USERNAME`/`DHI_TOKEN` secrets; fork PRs, which cannot read secrets, build with `RUNTIME=distroless`. Not covered by Dependabot: `GO_VERSION`, `BUN_VERSION`, `GOLANGCI_LINT_VERSION`, `TRIVY_VERSION`, and the Garage/Postgres images in the `integration` job.
@@ -148,7 +170,7 @@ Workflows live in [`.github/workflows`](../../.github/workflows). All actions ar
 
 | Job | Checks |
 |---|---|
-| `go` | `go build`, `go vet`, `go mod tidy -diff` (root and `tools/`), `govulncheck ./...`, `go test -race ./...` |
+| `go` | `go build`, `go vet`, `go mod tidy -diff` (root and `tools/`), `govulncheck ./...`, [dead-code gate](#dead-code-gate), `go test -race ./...` |
 | `integration` | Postgres + Garage service; `go test -race -tags integration ./tests/...` |
 | `lint` | golangci-lint with `.golangci.yaml` (includes gofmt/goimports) |
 | `reuse` | REUSE license compliance |
